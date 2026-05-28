@@ -54,12 +54,30 @@ cleanup_previous_install() {
     done
 }
 
-find_available_port() {
+choose_port() {
     local port=8088
-    while ss -tuln | awk '{print $5}' | grep -qE ":$port$"; do
-        port=$((port + 1))
+    if ! ss -tuln | awk '{print $5}' | grep -qE ":$port$"; then
+        echo "$port"
+        return
+    fi
+
+    echo -e "${YELLOW}Port 8088 is already in use.${RESET}" >&2
+    while true; do
+        read -p "Web Port [8089]: " port
+        port=${port:-8089}
+
+        if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            echo -e "${RED}Error: Port must be a number between 1 and 65535.${RESET}" >&2
+            continue
+        fi
+
+        if ss -tuln | awk '{print $5}' | grep -qE ":$port$"; then
+            echo -e "${RED}Error: Port $port is already in use. Please choose another port.${RESET}" >&2
+        else
+            echo "$port"
+            return
+        fi
     done
-    echo "$port"
 }
 
 detect_ssl_certificates() {
@@ -320,15 +338,6 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-if ! grep -qE "Ubuntu 22.04|Ubuntu 24.04|Debian GNU/Linux 12" /etc/os-release; then
-  echo -e "${YELLOW}Warning: This script is optimized for Ubuntu 22.04/24.04 and Debian 12.${RESET}"
-  read -p "Your current OS may not be fully supported. Continue anyway? [y/N]: " proceed
-  if [[ ! "$proceed" =~ ^[Yy]$ ]]; then
-      echo -e "${RED}Installation aborted.${RESET}"
-      exit 1
-  fi
-fi
-
 if ! command -v ss >/dev/null 2>&1; then
     echo -e "${YELLOW}Installing basic network tools for port detection...${RESET}"
     apt-get update -qq && apt-get install -y iproute2 -qq >/dev/null
@@ -341,12 +350,8 @@ HOST="127.0.0.1"
 
 cleanup_previous_install "$INSTALL_DIR"
 
-PORT=$(find_available_port)
+PORT=$(choose_port)
 INTERFACE=""
-echo -e "${GREEN}Using install directory: $INSTALL_DIR${RESET}"
-echo -e "${GREEN}Using web bind address: $HOST${RESET}"
-echo -e "${GREEN}Using web port: $PORT${RESET}"
-echo -e "${GREEN}Network interface will be auto-detected from the default route.${RESET}"
 
 read -p "Login Username [admin]: " AUTH_USERNAME
 AUTH_USERNAME=${AUTH_USERNAME:-admin}
@@ -470,5 +475,9 @@ else
 fi
 echo -e "Check service status : systemctl status $SERVICE_NAME"
 echo -e "View running logs    : journalctl -u $SERVICE_NAME -f"
+echo -e "Install directory    : $INSTALL_DIR"
+echo -e "Bind address         : $HOST"
+echo -e "Web port             : $PORT"
+echo -e "Network interface    : auto-detect"
 echo -e "Monthly reset day    : $MONTH_RESET_DAY"
 echo -e "${GREEN}====================================${RESET}"
