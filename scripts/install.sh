@@ -54,6 +54,14 @@ cleanup_previous_install() {
     done
 }
 
+find_available_port() {
+    local port=8088
+    while ss -tuln | awk '{print $5}' | grep -qE ":$port$"; do
+        port=$((port + 1))
+    done
+    echo "$port"
+}
+
 detect_ssl_certificates() {
     SSL_ENABLED=0
     SSL_CERTFILE=""
@@ -87,12 +95,41 @@ detect_ssl_certificates() {
         done < <(find /etc/nginx \( -type f -o -type l \) \( -name "*.conf" -o -path "*/sites-enabled/*" -o -path "*/sites-available/*" \) 2>/dev/null | sort)
     fi
 
+    if command -v sqlite3 >/dev/null 2>&1; then
+        while IFS= read -r db_file; do
+            local cert_file=""
+            local key_file=""
+            while IFS='=' read -r setting_key setting_value; do
+                case "$setting_key" in
+                    *Cert*|*cert*|*Certificate*|*certificate*) cert_file="$setting_value" ;;
+                    *Key*|*key*) key_file="$setting_value" ;;
+                esac
+            done < <(sqlite3 "$db_file" "SELECT key || '=' || value FROM settings;" 2>/dev/null || true)
+            add_cert_candidate "$cert_file" "$key_file" "x-ui database: $db_file"
+        done < <(find /etc/x-ui /usr/local/x-ui /usr/local/etc/x-ui -maxdepth 3 -type f \( -name "*.db" -o -name "*.sqlite" \) 2>/dev/null | sort)
+    fi
+
+    while IFS= read -r config_dir; do
+        local cert_file=""
+        local key_file=""
+        while IFS= read -r path_value; do
+            case "$path_value" in
+                *key*|*priv*) key_file="$path_value" ;;
+                *) cert_file="$path_value" ;;
+            esac
+        done < <(grep -RohE '/[^"'\'' ;]+[.](pem|crt|cer|key)' "$config_dir" 2>/dev/null | sort -u)
+        add_cert_candidate "$cert_file" "$key_file" "Config path scan: $config_dir"
+    done < <(find /etc/x-ui /usr/local/x-ui /usr/local/etc/x-ui -maxdepth 2 -type d 2>/dev/null | sort)
+
     local scan_roots=(
         "/etc/x-ui"
         "/usr/local/x-ui"
         "/usr/local/etc/x-ui"
         "/root/cert"
         "/root/.acme.sh"
+        "/opt"
+        "/usr/local/etc"
+        "/var/lib"
         "/etc/ssl"
         "/etc/v2ray-agent/tls"
         "/etc/hysteria"
@@ -299,34 +336,17 @@ fi
 
 echo -e "${GREEN}=== VPS Traffic Panel Installer ===${RESET}"
 
-read -p "Install directory [/opt/vps-traffic-panel]: " INSTALL_DIR
-INSTALL_DIR=${INSTALL_DIR:-/opt/vps-traffic-panel}
+INSTALL_DIR="/opt/vps-traffic-panel"
+HOST="127.0.0.1"
 
 cleanup_previous_install "$INSTALL_DIR"
 
-read -p "Web Bind Address [127.0.0.1]: " HOST
-HOST=${HOST:-127.0.0.1}
-
-if [ "$HOST" == "0.0.0.0" ]; then
-    echo -e "${RED}WARNING: You are binding to 0.0.0.0. Exposing the panel directly to the internet carries risks. Ensure your password is very strong!${RESET}"
-    sleep 2
-fi
-
-while true; do
-    read -p "Web Port [8088]: " PORT
-    PORT=${PORT:-8088}
-    
-    if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
-        echo -e "${RED}Error: Port must be a number between 1 and 65535.${RESET}"
-        continue
-    fi
-
-    if ss -tuln | awk '{print $5}' | grep -qE ":$PORT$"; then
-        echo -e "${RED}Error: Port $PORT is already in use. Please choose another port.${RESET}"
-    else
-        break
-    fi
-done
+PORT=$(find_available_port)
+INTERFACE=""
+echo -e "${GREEN}Using install directory: $INSTALL_DIR${RESET}"
+echo -e "${GREEN}Using web bind address: $HOST${RESET}"
+echo -e "${GREEN}Using web port: $PORT${RESET}"
+echo -e "${GREEN}Network interface will be auto-detected from the default route.${RESET}"
 
 read -p "Login Username [admin]: " AUTH_USERNAME
 AUTH_USERNAME=${AUTH_USERNAME:-admin}
@@ -348,8 +368,20 @@ while true; do
     break
 done
 
-INTERFACE=""
-echo -e "${GREEN}Network interface will be auto-detected from the default route.${RESET}"
+while true; do
+    read -p "Monthly traffic reset day [1]: " MONTH_RESET_DAY
+    MONTH_RESET_DAY=${MONTH_RESET_DAY:-1}
+    if [[ "$MONTH_RESET_DAY" =~ ^[0-9]+$ ]] && [ "$MONTH_RESET_DAY" -ge 1 ] && [ "$MONTH_RESET_DAY" -le 31 ]; then
+        break
+    fi
+    echo -e "${RED}Error: Reset day must be between 1 and 31.${RESET}"
+done
+
+if ! command -v sqlite3 >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1; then
+    echo -e "${YELLOW}Installing SSL detection tools...${RESET}"
+    apt-get update
+    apt-get install -y sqlite3 openssl
+fi
 
 detect_ssl_certificates
 
@@ -381,6 +413,7 @@ PORT=$PORT
 AUTH_USERNAME=$AUTH_USERNAME
 AUTH_PASSWORD=$AUTH_PASSWORD
 INTERFACE=$INTERFACE
+MONTH_RESET_DAY=$MONTH_RESET_DAY
 SSL_ENABLED=$SSL_ENABLED
 SSL_CERTFILE=$SSL_CERTFILE
 SSL_KEYFILE=$SSL_KEYFILE
@@ -437,4 +470,5 @@ else
 fi
 echo -e "Check service status : systemctl status $SERVICE_NAME"
 echo -e "View running logs    : journalctl -u $SERVICE_NAME -f"
+echo -e "Monthly reset day    : $MONTH_RESET_DAY"
 echo -e "${GREEN}====================================${RESET}"

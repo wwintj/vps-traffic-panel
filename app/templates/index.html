@@ -47,8 +47,9 @@
             <p class="text-lg font-mono text-white"><span id="today-rx">0 B</span><br><span class="text-sm text-slate-400" id="today-tx">0 B</span></p>
         </div>
         <div class="card">
-            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">本月流量（下載 / 上傳）</h3>
+            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">本期流量（下載 / 上傳）</h3>
             <p class="text-lg font-mono text-white"><span id="month-rx">0 B</span><br><span class="text-sm text-slate-400" id="month-tx">0 B</span></p>
+            <p class="text-xs text-slate-500 mt-2" id="reset-day">每月 1 日重置</p>
         </div>
     </div>
 
@@ -151,6 +152,7 @@
                 document.getElementById('month-tx').innerText = formatBytes(data.month_tx);
                 document.getElementById('total-rx').innerText = formatBytes(data.total_rx);
                 document.getElementById('total-tx').innerText = formatBytes(data.total_tx);
+                document.getElementById('reset-day').innerText = `每月 ${data.month_reset_day} 日重置`;
             } catch (e) {
                 console.error("Error fetching /api/summary:", e);
             }

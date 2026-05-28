@@ -5,13 +5,14 @@ import platform
 import psutil
 import urllib.request
 from datetime import datetime, timedelta
+from calendar import monthrange
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
-from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR
+from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY
 from app.database import init_db, get_db
 from app.collector import collector_instance
 
@@ -53,6 +54,23 @@ def get_os_pretty_name():
     except Exception:
         pass
     return f"{platform.system()} {platform.release()}"
+
+def clamp_day(year, month, day):
+    return min(day, monthrange(year, month)[1])
+
+def previous_month(year, month):
+    if month == 1:
+        return year - 1, 12
+    return year, month - 1
+
+def get_current_cycle_start(now):
+    reset_day = clamp_day(now.year, now.month, MONTH_RESET_DAY)
+    if now.day >= reset_day:
+        return datetime(now.year, now.month, reset_day)
+
+    prev_year, prev_month = previous_month(now.year, now.month)
+    prev_reset_day = clamp_day(prev_year, prev_month, MONTH_RESET_DAY)
+    return datetime(prev_year, prev_month, prev_reset_day)
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, username: str = Depends(verify_auth)):
@@ -113,8 +131,12 @@ async def api_summary(username: str = Depends(verify_auth)):
     row = cursor.fetchone()
     today_rx, today_tx = (row[0] or 0), (row[1] or 0)
     
+    cycle_start = get_current_cycle_start(now)
+
     cursor.execute('''SELECT SUM(rx_bytes), SUM(tx_bytes) FROM hourly_traffic 
-                      WHERE year=? AND month=?''', (now.year, now.month))
+                      WHERE datetime(
+                          printf('%04d-%02d-%02d %02d:00:00', year, month, day, hour)
+                      ) >= datetime(?)''', (cycle_start.strftime('%Y-%m-%d %H:%M:%S'),))
     row = cursor.fetchone()
     month_rx, month_tx = (row[0] or 0), (row[1] or 0)
     
@@ -127,7 +149,7 @@ async def api_summary(username: str = Depends(verify_auth)):
         if y == now.year and m == now.month and d == now.day:
             today_rx += traffic["rx"]
             today_tx += traffic["tx"]
-        if y == now.year and m == now.month:
+        if datetime(y, m, d, h) >= cycle_start:
             month_rx += traffic["rx"]
             month_tx += traffic["tx"]
         total_rx += traffic["rx"]
@@ -136,7 +158,9 @@ async def api_summary(username: str = Depends(verify_auth)):
     return {
         "today_rx": today_rx, "today_tx": today_tx,
         "month_rx": month_rx, "month_tx": month_tx,
-        "total_rx": total_rx, "total_tx": total_tx
+        "total_rx": total_rx, "total_tx": total_tx,
+        "month_reset_day": MONTH_RESET_DAY,
+        "cycle_start": cycle_start.isoformat()
     }
 
 @app.get("/api/hourly")
