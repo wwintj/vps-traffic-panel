@@ -1,0 +1,103 @@
+import asyncio
+import os
+import time
+import logging
+from datetime import datetime
+from app.database import save_traffic_increment
+from app.config import INTERFACE
+
+logger = logging.getLogger("uvicorn.error")
+
+class TrafficCollector:
+    def __init__(self):
+        self.interface = INTERFACE or self._get_default_interface()
+        self.running = False
+        self.interface_status = False
+        
+        self.last_rx = 0
+        self.last_tx = 0
+        self.current_rx_speed = 0
+        self.current_tx_speed = 0
+        
+        self.pending_buckets = {}
+        
+        self.flush_interval = 60
+        self.last_flush = time.time()
+        self.last_log_time = 0
+
+    def _get_default_interface(self):
+        try:
+            with os.popen("ip route | grep default | awk '{print $5}'") as f:
+                iface = f.read().strip()
+                if iface:
+                    return iface
+        except Exception:
+            pass
+        return "eth0"
+
+    def _read_net_dev(self):
+        try:
+            with open('/proc/net/dev', 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith(self.interface + ':'):
+                        self.interface_status = True
+                        parts = line.split(':')[1].split()
+                        return int(parts[0]), int(parts[8])
+        except Exception:
+            pass
+            
+        if time.time() - self.last_log_time >= 60:
+            logger.warning(f"Interface '{self.interface}' dropped or not found in /proc/net/dev")
+            self.last_log_time = time.time()
+            
+        self.interface_status = False
+        return 0, 0
+
+    async def start(self):
+        self.running = True
+        self.last_rx, self.last_tx = self._read_net_dev()
+        
+        try:
+            while self.running:
+                await asyncio.sleep(1)
+                curr_rx, curr_tx = self._read_net_dev()
+                
+                if curr_rx == 0 and curr_tx == 0 and not self.interface_status:
+                    continue
+                    
+                rx_diff = curr_rx - self.last_rx if curr_rx >= self.last_rx else curr_rx
+                tx_diff = curr_tx - self.last_tx if curr_tx >= self.last_tx else curr_tx
+                
+                self.current_rx_speed = rx_diff
+                self.current_tx_speed = tx_diff
+                
+                now = datetime.now()
+                bucket_key = (now.year, now.month, now.day, now.hour)
+                if bucket_key not in self.pending_buckets:
+                    self.pending_buckets[bucket_key] = {"rx": 0, "tx": 0}
+                    
+                self.pending_buckets[bucket_key]["rx"] += rx_diff
+                self.pending_buckets[bucket_key]["tx"] += tx_diff
+                
+                self.last_rx = curr_rx
+                self.last_tx = curr_tx
+                
+                if time.time() - self.last_flush >= self.flush_interval:
+                    self.flush_to_db()
+                    
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.flush_to_db()
+
+    def flush_to_db(self):
+        buckets_to_flush = self.pending_buckets
+        self.pending_buckets = {}
+        self.last_flush = time.time()
+        
+        for (y, m, d, h), traffic in buckets_to_flush.items():
+            if traffic["rx"] > 0 or traffic["tx"] > 0:
+                save_traffic_increment(traffic["rx"], traffic["tx"], y, m, d, h)
+
+collector_instance = TrafficCollector()
