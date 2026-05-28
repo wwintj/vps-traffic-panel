@@ -163,6 +163,7 @@ detect_ssl_certificates() {
         "/etc/x-ui"
         "/usr/local/x-ui"
         "/usr/local/etc/x-ui"
+        "/root"
         "/root/cert"
         "/root/.acme.sh"
         "/opt"
@@ -450,6 +451,7 @@ echo -e "${YELLOW}Copying project files...${RESET}"
 mkdir -p "$INSTALL_DIR"
 
 rsync -av --exclude={'.git','venv','__pycache__','*.db','*.db-shm','*.db-wal','.env','.env.example','backups','*.bak'} "$PROJECT_ROOT/" "$INSTALL_DIR/"
+chmod +x "$INSTALL_DIR"/scripts/*.sh
 
 cd "$INSTALL_DIR"
 

@@ -45,6 +45,7 @@ echo -e "${YELLOW}Syncing application files...${RESET}"
 rsync -av --delete \
     --exclude={'.git','venv','__pycache__','*.db','*.db-shm','*.db-wal','.env','.env.example','backups','*.bak'} \
     "$SOURCE_DIR/" "$INSTALL_DIR/"
+chmod +x "$INSTALL_DIR"/scripts/*.sh
 
 cd "$INSTALL_DIR"
 if [ ! -d venv ]; then
