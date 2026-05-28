@@ -44,6 +44,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "app/templates"))
 
+def get_os_pretty_name():
+    try:
+        with open('/etc/os-release', 'r') as f:
+            for line in f:
+                if line.startswith('PRETTY_NAME='):
+                    return line.split('=', 1)[1].strip().strip('"')
+    except Exception:
+        pass
+    return f"{platform.system()} {platform.release()}"
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, username: str = Depends(verify_auth)):
     return templates.TemplateResponse("index.html", {"request": request, "interface": collector_instance.interface})
@@ -85,7 +95,8 @@ async def api_system(username: str = Depends(verify_auth)):
         "disk_total": disk.total,
         "disk_used": disk.used,
         "disk_percent": disk.percent,
-        "os_version": f"{platform.system()} {platform.release()}",
+        "os_version": get_os_pretty_name(),
+        "kernel_release": platform.release(),
         "kernel_version": platform.version(),
         "interface": collector_instance.interface,
         "interface_status": collector_instance.interface_status

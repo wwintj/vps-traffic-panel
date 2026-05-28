@@ -11,6 +11,8 @@
         body { background-color: #0b1120; color: #f8fafc; font-family: "JetBrains Mono", "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", monospace, sans-serif; }
         h1, .font-mono { font-family: "Share Tech Mono", "JetBrains Mono", "Noto Sans TC", "Microsoft JhengHei", monospace; letter-spacing: 0; }
         .card { background-color: #1e293b; border: 1px solid #334155; border-radius: 0.5rem; padding: 1.25rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .progress-track { height: 6px; width: 100%; overflow: hidden; border-radius: 999px; background: #0f172a; border: 1px solid #334155; }
+        .progress-fill { height: 100%; width: 0%; border-radius: inherit; transition: width 0.35s ease; }
         .status-dot-ok { height: 8px; width: 8px; background-color: #10b981; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #10b981; }
         .status-dot-error { height: 8px; width: 8px; background-color: #ef4444; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #ef4444; }
     </style>
@@ -51,17 +53,26 @@
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8">
-        <div class="card flex justify-between items-center">
-            <div><p class="text-xs text-slate-400 uppercase">CPU 使用率</p><p class="text-lg font-bold" id="sys-cpu">0%</p></div>
-            <div class="text-right text-xs text-slate-500" id="sys-cpu-cores">0 核心</div>
+        <div class="card">
+            <div class="flex justify-between items-center mb-3">
+                <div><p class="text-xs text-slate-400 uppercase">CPU 使用率</p><p class="text-lg font-bold" id="sys-cpu">0%</p></div>
+                <div class="text-right text-xs text-slate-500" id="sys-cpu-cores">0 核心</div>
+            </div>
+            <div class="progress-track"><div class="progress-fill bg-cyan-400" id="sys-cpu-bar"></div></div>
         </div>
-        <div class="card flex justify-between items-center">
-            <div><p class="text-xs text-slate-400 uppercase">記憶體</p><p class="text-lg font-bold" id="sys-mem">0%</p></div>
-            <div class="text-right text-xs text-slate-500" id="sys-mem-detail">0 / 0 GB</div>
+        <div class="card">
+            <div class="flex justify-between items-center mb-3">
+                <div><p class="text-xs text-slate-400 uppercase">記憶體</p><p class="text-lg font-bold" id="sys-mem">0%</p></div>
+                <div class="text-right text-xs text-slate-500" id="sys-mem-detail">0 / 0 GB</div>
+            </div>
+            <div class="progress-track"><div class="progress-fill bg-fuchsia-400" id="sys-mem-bar"></div></div>
         </div>
-        <div class="card flex justify-between items-center">
-            <div><p class="text-xs text-slate-400 uppercase">磁碟（/）</p><p class="text-lg font-bold" id="sys-disk">0%</p></div>
-            <div class="text-right text-xs text-slate-500" id="sys-disk-detail">0 / 0 GB</div>
+        <div class="card">
+            <div class="flex justify-between items-center mb-3">
+                <div><p class="text-xs text-slate-400 uppercase">磁碟（/）</p><p class="text-lg font-bold" id="sys-disk">0%</p></div>
+                <div class="text-right text-xs text-slate-500" id="sys-disk-detail">0 / 0 GB</div>
+            </div>
+            <div class="progress-track"><div class="progress-fill bg-amber-400" id="sys-disk-bar"></div></div>
         </div>
     </div>
 
@@ -84,13 +95,18 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i] + (isSpeed ? '/s' : '');
         }
 
+        function setProgress(id, value) {
+            const percent = Math.max(0, Math.min(100, Number(value) || 0));
+            document.getElementById(id).style.width = `${percent}%`;
+        }
+
         async function fetchSystem() {
             try {
                 const res = await fetch('/api/system');
                 const data = await res.json();
                 document.getElementById('sys-ip').innerText = data.public_ip;
                 document.getElementById('sys-uptime').innerText = data.uptime.split('.')[0];
-                document.getElementById('sys-os').innerText = `${data.os_version} (${data.kernel_version})`;
+                document.getElementById('sys-os').innerText = `${data.os_version} / Kernel ${data.kernel_release}`;
                 document.getElementById('sys-hostname').innerText = data.hostname;
                 document.getElementById('sys-cpu').innerText = `${data.cpu_percent}%`;
                 document.getElementById('sys-cpu-cores').innerText = `${data.cpu_count} 核心`;
@@ -98,6 +114,9 @@
                 document.getElementById('sys-mem-detail').innerText = `${(data.memory_used/1073741824).toFixed(1)} / ${(data.memory_total/1073741824).toFixed(1)} GB`;
                 document.getElementById('sys-disk').innerText = `${data.disk_percent}%`;
                 document.getElementById('sys-disk-detail').innerText = `${(data.disk_used/1073741824).toFixed(1)} / ${(data.disk_total/1073741824).toFixed(1)} GB`;
+                setProgress('sys-cpu-bar', data.cpu_percent);
+                setProgress('sys-mem-bar', data.memory_percent);
+                setProgress('sys-disk-bar', data.disk_percent);
                 
                 const dot = document.getElementById('iface-status-dot');
                 if (data.interface_status) {
@@ -185,7 +204,7 @@
         fetchSystem(); fetchSummary(); fetchCharts();
         setInterval(fetchRealtime, 2000);
         setInterval(fetchSummary, 5000);
-        setInterval(fetchSystem, 30000);
+        setInterval(fetchSystem, 5000);
         setInterval(fetchCharts, 60000);
         window.addEventListener('resize', () => { chart24h.resize(); chart30d.resize(); chart12m.resize(); });
     </script>

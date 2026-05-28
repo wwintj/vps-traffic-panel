@@ -62,9 +62,18 @@ detect_ssl_certificates() {
     PANEL_DOMAIN=""
 
     local candidates=()
+    add_cert_candidate() {
+        local cert_file="$1"
+        local key_file="$2"
+        local label="$3"
+        if [ -n "$cert_file" ] && [ -n "$key_file" ] && [ -f "$cert_file" ] && [ -f "$key_file" ]; then
+            candidates+=("$cert_file|$key_file|$label")
+        fi
+    }
+
     if [ -d /etc/letsencrypt/live ]; then
         while IFS= read -r cert_dir; do
-            [ -f "$cert_dir/fullchain.pem" ] && [ -f "$cert_dir/privkey.pem" ] && candidates+=("$cert_dir/fullchain.pem|$cert_dir/privkey.pem|Let's Encrypt: $(basename "$cert_dir")")
+            add_cert_candidate "$cert_dir/fullchain.pem" "$cert_dir/privkey.pem" "Let's Encrypt: $(basename "$cert_dir")"
         done < <(find /etc/letsencrypt/live -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
     fi
 
@@ -74,11 +83,52 @@ detect_ssl_certificates() {
             local key_file
             cert_file=$(awk '/ssl_certificate[[:space:]]+/ && $1 == "ssl_certificate" {gsub(/;/, "", $2); print $2; exit}' "$nginx_file" 2>/dev/null || true)
             key_file=$(awk '/ssl_certificate_key[[:space:]]+/ {gsub(/;/, "", $2); print $2; exit}' "$nginx_file" 2>/dev/null || true)
-            if [ -n "$cert_file" ] && [ -n "$key_file" ] && [ -f "$cert_file" ] && [ -f "$key_file" ]; then
-                candidates+=("$cert_file|$key_file|Nginx config: $nginx_file")
-            fi
+            add_cert_candidate "$cert_file" "$key_file" "Nginx config: $nginx_file"
         done < <(find /etc/nginx \( -type f -o -type l \) \( -name "*.conf" -o -path "*/sites-enabled/*" -o -path "*/sites-available/*" \) 2>/dev/null | sort)
     fi
+
+    local scan_roots=(
+        "/etc/x-ui"
+        "/usr/local/x-ui"
+        "/usr/local/etc/x-ui"
+        "/root/cert"
+        "/root/.acme.sh"
+        "/etc/ssl"
+        "/etc/v2ray-agent/tls"
+        "/etc/hysteria"
+        "/etc/sing-box"
+        "/etc/trojan"
+    )
+    local root
+    for root in "${scan_roots[@]}"; do
+        [ -d "$root" ] || continue
+        while IFS= read -r cert_file; do
+            local cert_dir
+            local key_file
+            local cert_name
+            cert_dir=$(dirname "$cert_file")
+            cert_name=$(basename "$cert_file")
+            case "$cert_name" in
+                *key*|*priv*) continue ;;
+            esac
+            for key_file in \
+                "$cert_dir/privkey.pem" \
+                "$cert_dir/private.key" \
+                "$cert_dir/private.pem" \
+                "$cert_dir/key.pem" \
+                "$cert_dir/server.key" \
+                "$cert_dir/cert.key" \
+                "$cert_dir/ssl.key" \
+                "$cert_dir/$(basename "$cert_dir").key" \
+                "$cert_dir"/*.key \
+                "$cert_dir"/*key*.pem; do
+                if [ -f "$key_file" ]; then
+                    add_cert_candidate "$cert_file" "$key_file" "Auto scan: $cert_dir"
+                    break
+                fi
+            done
+        done < <(find "$root" -maxdepth 5 -type f \( -name "fullchain.pem" -o -name "cert.pem" -o -name "certificate.pem" -o -name "server.crt" -o -name "server.pem" -o -name "*.crt" -o -name "*.cer" -o -name "*.pem" \) 2>/dev/null | sort)
+    done
 
     local unique_candidates=()
     local seen=" "
@@ -127,44 +177,54 @@ detect_ssl_certificates() {
         echo "      key : $key_path"
     done
 
-    read -p "Enable HTTPS for the panel with one of these certificates? [Y/n]: " use_ssl
-    if [[ "$use_ssl" =~ ^[Nn]$ ]]; then
-        return
+    local choice
+    if [ "${#unique_candidates[@]}" -eq 1 ]; then
+        choice=1
+        echo -e "${GREEN}Using the only detected certificate automatically.${RESET}"
+    else
+        while true; do
+            read -p "Select certificate number [1]: " choice
+            choice=${choice:-1}
+            if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#unique_candidates[@]}" ]; then
+                break
+            fi
+            echo -e "${RED}Error: Please choose a valid certificate number.${RESET}"
+        done
     fi
 
-    local choice
-    while true; do
-        read -p "Select certificate number [1]: " choice
-        choice=${choice:-1}
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#unique_candidates[@]}" ]; then
-            local selected="${unique_candidates[$((choice - 1))]}"
-            local rest="${selected#*|}"
-            SSL_ENABLED=1
-            SSL_CERTFILE="${selected%%|*}"
-            SSL_KEYFILE="${rest%%|*}"
-            break
-        fi
-        echo -e "${RED}Error: Please choose a valid certificate number.${RESET}"
-    done
+    local selected="${unique_candidates[$((choice - 1))]}"
+    local rest="${selected#*|}"
+    SSL_ENABLED=1
+    SSL_CERTFILE="${selected%%|*}"
+    SSL_KEYFILE="${rest%%|*}"
 
-    if command -v nginx >/dev/null 2>&1; then
-        local default_domain
+    local default_domain
+    default_domain=""
+    if command -v openssl >/dev/null 2>&1; then
+        default_domain=$(openssl x509 -in "$SSL_CERTFILE" -noout -ext subjectAltName 2>/dev/null | sed -n 's/.*DNS:\([^, ]*\).*/\1/p' | head -n 1)
+        if [ -z "$default_domain" ]; then
+            default_domain=$(openssl x509 -in "$SSL_CERTFILE" -noout -subject 2>/dev/null | sed -n 's/.*CN[ =]*\([^,\/]*\).*/\1/p' | head -n 1)
+        fi
+    fi
+    if [ -z "$default_domain" ]; then
         default_domain=$(basename "$(dirname "$SSL_CERTFILE")")
         [ "$default_domain" = "archive" ] && default_domain=""
-        read -p "Panel domain for HTTPS reverse proxy [$default_domain]: " PANEL_DOMAIN
-        PANEL_DOMAIN=${PANEL_DOMAIN:-$default_domain}
+        [ "$default_domain" = "cert" ] && default_domain=""
+    fi
 
-        if [ -n "$PANEL_DOMAIN" ] && [ "$HOST" = "127.0.0.1" ]; then
-            HTTPS_MODE="nginx"
-            echo -e "${GREEN}HTTPS will be configured through Nginx reverse proxy.${RESET}"
-            return
-        fi
+    read -p "Panel domain for HTTPS [$default_domain]: " PANEL_DOMAIN
+    PANEL_DOMAIN=${PANEL_DOMAIN:-$default_domain}
+
+    if [ -n "$PANEL_DOMAIN" ] && [ "$HOST" = "127.0.0.1" ]; then
+        HTTPS_MODE="nginx"
+        echo -e "${GREEN}HTTPS will be configured through Nginx reverse proxy.${RESET}"
+        return
     fi
 
     HTTPS_MODE="uvicorn"
     if [ "$HOST" = "127.0.0.1" ]; then
-        echo -e "${YELLOW}Nginx reverse proxy is unavailable or no domain was provided. HTTPS will bind only to 127.0.0.1.${RESET}"
-        echo -e "${YELLOW}For public HTTPS access, install/configure Nginx or bind to 0.0.0.0 with firewall protection.${RESET}"
+        echo -e "${YELLOW}No panel domain was provided. HTTPS will bind only to 127.0.0.1.${RESET}"
+        echo -e "${YELLOW}For public HTTPS access, provide the domain covered by your certificate.${RESET}"
     fi
 }
 
@@ -288,13 +348,18 @@ while true; do
     break
 done
 
-read -p "Network Interface (Leave blank for auto-detect): " INTERFACE
+INTERFACE=""
+echo -e "${GREEN}Network interface will be auto-detected from the default route.${RESET}"
 
 detect_ssl_certificates
 
 echo -e "${YELLOW}Installing dependencies...${RESET}"
 apt-get update
-apt-get install -y python3 python3-venv python3-pip python3-dev gcc sqlite3 curl rsync git iproute2
+PACKAGES=(python3 python3-venv python3-pip python3-dev gcc sqlite3 curl rsync git iproute2)
+if [ "$HTTPS_MODE" = "nginx" ]; then
+    PACKAGES+=(nginx openssl)
+fi
+apt-get install -y "${PACKAGES[@]}"
 
 echo -e "${YELLOW}Copying project files...${RESET}"
 mkdir -p "$INSTALL_DIR"
