@@ -63,6 +63,15 @@ def previous_month(year, month):
         return year - 1, 12
     return year, month - 1
 
+def recent_months(count):
+    now = datetime.now()
+    months = []
+    year, month = now.year, now.month
+    for _ in range(count):
+        months.append((year, month))
+        year, month = previous_month(year, month)
+    return months[::-1]
+
 def get_current_cycle_start(now):
     reset_day = clamp_day(now.year, now.month, MONTH_RESET_DAY)
     if now.day >= reset_day:
@@ -178,28 +187,77 @@ async def api_hourly(username: str = Depends(verify_auth)):
 
 @app.get("/api/daily")
 async def api_daily(username: str = Depends(verify_auth)):
+    today = datetime.now().date()
+    days = [today - timedelta(days=offset) for offset in range(29, -1, -1)]
+    data_by_day = {
+        (day.year, day.month, day.day): {
+            "year": day.year,
+            "month": day.month,
+            "day": day.day,
+            "rx_bytes": 0,
+            "tx_bytes": 0,
+        }
+        for day in days
+    }
+
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT year, month, day, SUM(rx_bytes) as rx_bytes, SUM(tx_bytes) as tx_bytes 
-        FROM hourly_traffic 
+        FROM hourly_traffic
+        WHERE date(printf('%04d-%02d-%02d', year, month, day)) >= date(?)
         GROUP BY year, month, day 
-        ORDER BY year DESC, month DESC, day DESC LIMIT 30
-    ''')
-    data = [dict(row) for row in cursor.fetchall()][::-1]
+        ORDER BY year, month, day
+    ''', (days[0].isoformat(),))
+    for row in cursor.fetchall():
+        key = (row["year"], row["month"], row["day"])
+        if key in data_by_day:
+            data_by_day[key]["rx_bytes"] = row["rx_bytes"] or 0
+            data_by_day[key]["tx_bytes"] = row["tx_bytes"] or 0
     conn.close()
-    return data
+
+    for (y, m, d, _h), traffic in collector_instance.pending_buckets.items():
+        key = (y, m, d)
+        if key in data_by_day:
+            data_by_day[key]["rx_bytes"] += traffic["rx"]
+            data_by_day[key]["tx_bytes"] += traffic["tx"]
+
+    return [data_by_day[(day.year, day.month, day.day)] for day in days]
 
 @app.get("/api/monthly")
 async def api_monthly(username: str = Depends(verify_auth)):
+    months = recent_months(12)
+    data_by_month = {
+        (year, month): {
+            "year": year,
+            "month": month,
+            "rx_bytes": 0,
+            "tx_bytes": 0,
+        }
+        for year, month in months
+    }
+    start_year, start_month = months[0]
+
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('''
         SELECT year, month, SUM(rx_bytes) as rx_bytes, SUM(tx_bytes) as tx_bytes 
-        FROM hourly_traffic 
+        FROM hourly_traffic
+        WHERE (year > ? OR (year = ? AND month >= ?))
         GROUP BY year, month 
-        ORDER BY year DESC, month DESC LIMIT 12
-    ''')
-    data = [dict(row) for row in cursor.fetchall()][::-1]
+        ORDER BY year, month
+    ''', (start_year, start_year, start_month))
+    for row in cursor.fetchall():
+        key = (row["year"], row["month"])
+        if key in data_by_month:
+            data_by_month[key]["rx_bytes"] = row["rx_bytes"] or 0
+            data_by_month[key]["tx_bytes"] = row["tx_bytes"] or 0
     conn.close()
-    return data
+
+    for (y, m, _d, _h), traffic in collector_instance.pending_buckets.items():
+        key = (y, m)
+        if key in data_by_month:
+            data_by_month[key]["rx_bytes"] += traffic["rx"]
+            data_by_month[key]["tx_bytes"] += traffic["tx"]
+
+    return [data_by_month[key] for key in months]
