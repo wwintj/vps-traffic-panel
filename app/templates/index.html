@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VPS Traffic Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        body { background-color: #0b1120; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .card { background-color: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.25rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .status-dot-ok { height: 8px; width: 8px; background-color: #10b981; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #10b981; }
+        .status-dot-error { height: 8px; width: 8px; background-color: #ef4444; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #ef4444; }
+    </style>
+</head>
+<body class="p-4 md:p-8 max-w-7xl mx-auto">
+    
+    <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-700 pb-4">
+        <div>
+            <h1 class="text-3xl font-bold text-cyan-400 flex items-center gap-3">
+                <span id="iface-status-dot" class="status-dot-ok"></span> Traffic Panel
+            </h1>
+            <p class="text-slate-400 text-sm mt-2" id="sys-hostname">Loading Hostname...</p>
+        </div>
+        <div class="text-left md:text-right text-sm text-slate-400 mt-4 md:mt-0 space-y-1">
+            <p>IP: <span id="sys-ip" class="text-white font-mono">...</span></p>
+            <p>Uptime: <span id="sys-uptime" class="text-white">...</span></p>
+            <p>OS: <span id="sys-os" class="text-white">...</span></p>
+        </div>
+    </header>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8">
+        <div class="card border-t-4 border-t-emerald-400">
+            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">↓ Download Speed</h3>
+            <p class="text-2xl font-mono text-emerald-400" id="rx-speed">0 B/s</p>
+        </div>
+        <div class="card border-t-4 border-t-blue-400">
+            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">↑ Upload Speed</h3>
+            <p class="text-2xl font-mono text-blue-400" id="tx-speed">0 B/s</p>
+        </div>
+        <div class="card">
+            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">Today Traffic (DL / UL)</h3>
+            <p class="text-lg font-mono text-white"><span id="today-rx">0 B</span><br><span class="text-sm text-slate-400" id="today-tx">0 B</span></p>
+        </div>
+        <div class="card">
+            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">Month Traffic (DL / UL)</h3>
+            <p class="text-lg font-mono text-white"><span id="month-rx">0 B</span><br><span class="text-sm text-slate-400" id="month-tx">0 B</span></p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8">
+        <div class="card flex justify-between items-center">
+            <div><p class="text-xs text-slate-400 uppercase">CPU Usage</p><p class="text-lg font-bold" id="sys-cpu">0%</p></div>
+            <div class="text-right text-xs text-slate-500" id="sys-cpu-cores">0 Cores</div>
+        </div>
+        <div class="card flex justify-between items-center">
+            <div><p class="text-xs text-slate-400 uppercase">Memory</p><p class="text-lg font-bold" id="sys-mem">0%</p></div>
+            <div class="text-right text-xs text-slate-500" id="sys-mem-detail">0 / 0 GB</div>
+        </div>
+        <div class="card flex justify-between items-center">
+            <div><p class="text-xs text-slate-400 uppercase">Disk ( / )</p><p class="text-lg font-bold" id="sys-disk">0%</p></div>
+            <div class="text-right text-xs text-slate-500" id="sys-disk-detail">0 / 0 GB</div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 mb-8">
+        <div class="card h-80" id="chart-24h"></div>
+        <div class="card h-80" id="chart-30d"></div>
+        <div class="card h-80" id="chart-12m"></div>
+    </div>
+
+    <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-xs text-center space-y-1 pb-8">
+        <p>Total Download: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | Total Upload: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong></p>
+        <p>Interface: <strong id="footer-iface">{{ interface }}</strong> | Maintained by <strong>Tim</strong></p>
+    </footer>
+
+    <script>
+        function formatBytes(bytes, isSpeed=false) {
+            if (!bytes || bytes === 0) return '0 B' + (isSpeed ? '/s' : '');
+            const k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i] + (isSpeed ? '/s' : '');
+        }
+
+        async function fetchSystem() {
+            try {
+                const res = await fetch('/api/system');
+                const data = await res.json();
+                document.getElementById('sys-ip').innerText = data.public_ip;
+                document.getElementById('sys-uptime').innerText = data.uptime.split('.')[0];
+                document.getElementById('sys-os').innerText = `${data.os_version} (${data.kernel_version})`;
+                document.getElementById('sys-hostname').innerText = data.hostname;
+                document.getElementById('sys-cpu').innerText = `${data.cpu_percent}%`;
+                document.getElementById('sys-cpu-cores').innerText = `${data.cpu_count} Cores`;
+                document.getElementById('sys-mem').innerText = `${data.memory_percent}%`;
+                document.getElementById('sys-mem-detail').innerText = `${(data.memory_used/1073741824).toFixed(1)} / ${(data.memory_total/1073741824).toFixed(1)} GB`;
+                document.getElementById('sys-disk').innerText = `${data.disk_percent}%`;
+                document.getElementById('sys-disk-detail').innerText = `${(data.disk_used/1073741824).toFixed(1)} / ${(data.disk_total/1073741824).toFixed(1)} GB`;
+                
+                const dot = document.getElementById('iface-status-dot');
+                if (data.interface_status) {
+                    dot.className = 'status-dot-ok';
+                } else {
+                    dot.className = 'status-dot-error';
+                    document.getElementById('footer-iface').innerText = data.interface + ' (Disconnected)';
+                }
+            } catch (e) {
+                console.error("Error fetching /api/system:", e);
+            }
+        }
+
+        async function fetchRealtime() {
+            try {
+                const res = await fetch('/api/realtime');
+                const data = await res.json();
+                document.getElementById('rx-speed').innerText = formatBytes(data.rx_speed, true);
+                document.getElementById('tx-speed').innerText = formatBytes(data.tx_speed, true);
+            } catch (e) {
+                console.error("Error fetching /api/realtime:", e);
+            }
+        }
+
+        async function fetchSummary() {
+            try {
+                const res = await fetch('/api/summary');
+                const data = await res.json();
+                document.getElementById('today-rx').innerText = formatBytes(data.today_rx);
+                document.getElementById('today-tx').innerText = formatBytes(data.today_tx);
+                document.getElementById('month-rx').innerText = formatBytes(data.month_rx);
+                document.getElementById('month-tx').innerText = formatBytes(data.month_tx);
+                document.getElementById('total-rx').innerText = formatBytes(data.total_rx);
+                document.getElementById('total-tx').innerText = formatBytes(data.total_tx);
+            } catch (e) {
+                console.error("Error fetching /api/summary:", e);
+            }
+        }
+
+        const chartOpts = {
+            backgroundColor: 'transparent',
+            tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+            legend: { data: ['Download', 'Upload'], bottom: 0, textStyle: { color: '#94a3b8' } },
+            grid: { left: '2%', right: '4%', bottom: '15%', top: '15%', containLabel: true },
+            xAxis: { type: 'category', data: [], axisLabel: { color: '#64748b' } },
+            yAxis: { type: 'value', splitLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#64748b', formatter: (val) => formatBytes(val) } },
+            series: [
+                { name: 'Download', type: 'bar', itemStyle: {color: '#34d399', borderRadius: [4, 4, 0, 0]}, data: [] },
+                { name: 'Upload', type: 'bar', itemStyle: {color: '#60a5fa', borderRadius: [4, 4, 0, 0]}, data: [] }
+            ]
+        };
+
+        let chart24h = echarts.init(document.getElementById('chart-24h'));
+        let chart30d = echarts.init(document.getElementById('chart-30d'));
+        let chart12m = echarts.init(document.getElementById('chart-12m'));
+
+        chart24h.setOption({...chartOpts, title: { text: 'Last 24 Hours', textStyle: {color: '#cbd5e1', fontSize: 16} }});
+        chart30d.setOption({...chartOpts, title: { text: 'Last 30 Days', textStyle: {color: '#cbd5e1', fontSize: 16} }});
+        chart12m.setOption({...chartOpts, title: { text: 'Last 12 Months', textStyle: {color: '#cbd5e1', fontSize: 16} }});
+
+        async function fetchCharts() {
+            try {
+                const [r1, r2, r3] = await Promise.all([fetch('/api/hourly'), fetch('/api/daily'), fetch('/api/monthly')]);
+                const hData = await r1.json();
+                const dData = await r2.json();
+                const mData = await r3.json();
+                
+                chart24h.setOption({
+                    xAxis: { data: hData.map(d => `${d.month}-${d.day} ${d.hour}:00`) },
+                    series: [{ data: hData.map(d => d.rx_bytes) }, { data: hData.map(d => d.tx_bytes) }]
+                });
+                chart30d.setOption({
+                    xAxis: { data: dData.map(d => `${d.month}-${d.day}`) },
+                    series: [{ data: dData.map(d => d.rx_bytes) }, { data: dData.map(d => d.tx_bytes) }]
+                });
+                chart12m.setOption({
+                    xAxis: { data: mData.map(d => `${d.year}-${d.month}`) },
+                    series: [{ data: mData.map(d => d.rx_bytes) }, { data: mData.map(d => d.tx_bytes) }]
+                });
+            } catch (e) {
+                console.error("Error fetching charts:", e);
+            }
+        }
+
+        fetchSystem(); fetchSummary(); fetchCharts();
+        setInterval(fetchRealtime, 2000);
+        setInterval(fetchSummary, 5000);
+        setInterval(fetchSystem, 30000);
+        setInterval(fetchCharts, 60000);
+        window.addEventListener('resize', () => { chart24h.resize(); chart30d.resize(); chart12m.resize(); });
+    </script>
+</body>
+</html>
