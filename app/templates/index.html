@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VPS 流量面板</title>
+    <title>VPS 監控流量面板</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <style>
@@ -22,9 +22,9 @@
     <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-700 pb-4">
         <div>
             <h1 class="text-3xl font-bold text-cyan-400 flex items-center gap-3">
-                <span id="iface-status-dot" class="status-dot-ok"></span> VPS 流量面板
+                <span id="iface-status-dot" class="status-dot-ok"></span> VPS 監控流量面板
             </h1>
-            <p class="text-slate-400 text-sm mt-2" id="sys-hostname">正在載入主機名稱...</p>
+            <p class="text-slate-400 text-sm mt-2">Tim哥在三更半夜改好的</p>
         </div>
         <div class="text-left md:text-right text-sm text-slate-400 mt-4 md:mt-0 space-y-1">
             <p>IP: <span id="sys-ip" class="text-white font-mono">...</span></p>
@@ -108,7 +108,6 @@
                 document.getElementById('sys-ip').innerText = data.public_ip;
                 document.getElementById('sys-uptime').innerText = data.uptime.split('.')[0];
                 document.getElementById('sys-os').innerText = `${data.os_version} / Kernel ${data.kernel_release}`;
-                document.getElementById('sys-hostname').innerText = data.hostname;
                 document.getElementById('sys-cpu').innerText = `${data.cpu_percent}%`;
                 document.getElementById('sys-cpu-cores').innerText = `${data.cpu_count} 核心`;
                 document.getElementById('sys-mem').innerText = `${data.memory_percent}%`;
