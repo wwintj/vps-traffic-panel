@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VPS Traffic Panel</title>
+    <title>VPS 流量面板</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <style>
-        body { background-color: #0b1120; color: #f8fafc; font-family: 'Inter', sans-serif; }
-        .card { background-color: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1.25rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        body { background-color: #0b1120; color: #f8fafc; font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", sans-serif; }
+        .card { background-color: #1e293b; border: 1px solid #334155; border-radius: 0.5rem; padding: 1.25rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
         .status-dot-ok { height: 8px; width: 8px; background-color: #10b981; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #10b981; }
         .status-dot-error { height: 8px; width: 8px; background-color: #ef4444; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #ef4444; }
     </style>
@@ -18,60 +18,60 @@
     <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-700 pb-4">
         <div>
             <h1 class="text-3xl font-bold text-cyan-400 flex items-center gap-3">
-                <span id="iface-status-dot" class="status-dot-ok"></span> Traffic Panel
+                <span id="iface-status-dot" class="status-dot-ok"></span> VPS 流量面板
             </h1>
-            <p class="text-slate-400 text-sm mt-2" id="sys-hostname">Loading Hostname...</p>
+            <p class="text-slate-400 text-sm mt-2" id="sys-hostname">正在載入主機名稱...</p>
         </div>
         <div class="text-left md:text-right text-sm text-slate-400 mt-4 md:mt-0 space-y-1">
             <p>IP: <span id="sys-ip" class="text-white font-mono">...</span></p>
-            <p>Uptime: <span id="sys-uptime" class="text-white">...</span></p>
-            <p>OS: <span id="sys-os" class="text-white">...</span></p>
+            <p>運行時間: <span id="sys-uptime" class="text-white">...</span></p>
+            <p>系統: <span id="sys-os" class="text-white">...</span></p>
         </div>
     </header>
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8">
         <div class="card border-t-4 border-t-emerald-400">
-            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">↓ Download Speed</h3>
+            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">↓ 下載速度</h3>
             <p class="text-2xl font-mono text-emerald-400" id="rx-speed">0 B/s</p>
         </div>
         <div class="card border-t-4 border-t-blue-400">
-            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">↑ Upload Speed</h3>
+            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">↑ 上傳速度</h3>
             <p class="text-2xl font-mono text-blue-400" id="tx-speed">0 B/s</p>
         </div>
         <div class="card">
-            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">Today Traffic (DL / UL)</h3>
+            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">今日流量（下載 / 上傳）</h3>
             <p class="text-lg font-mono text-white"><span id="today-rx">0 B</span><br><span class="text-sm text-slate-400" id="today-tx">0 B</span></p>
         </div>
         <div class="card">
-            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">Month Traffic (DL / UL)</h3>
+            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">本月流量（下載 / 上傳）</h3>
             <p class="text-lg font-mono text-white"><span id="month-rx">0 B</span><br><span class="text-sm text-slate-400" id="month-tx">0 B</span></p>
         </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8">
         <div class="card flex justify-between items-center">
-            <div><p class="text-xs text-slate-400 uppercase">CPU Usage</p><p class="text-lg font-bold" id="sys-cpu">0%</p></div>
-            <div class="text-right text-xs text-slate-500" id="sys-cpu-cores">0 Cores</div>
+            <div><p class="text-xs text-slate-400 uppercase">CPU 使用率</p><p class="text-lg font-bold" id="sys-cpu">0%</p></div>
+            <div class="text-right text-xs text-slate-500" id="sys-cpu-cores">0 核心</div>
         </div>
         <div class="card flex justify-between items-center">
-            <div><p class="text-xs text-slate-400 uppercase">Memory</p><p class="text-lg font-bold" id="sys-mem">0%</p></div>
+            <div><p class="text-xs text-slate-400 uppercase">記憶體</p><p class="text-lg font-bold" id="sys-mem">0%</p></div>
             <div class="text-right text-xs text-slate-500" id="sys-mem-detail">0 / 0 GB</div>
         </div>
         <div class="card flex justify-between items-center">
-            <div><p class="text-xs text-slate-400 uppercase">Disk ( / )</p><p class="text-lg font-bold" id="sys-disk">0%</p></div>
+            <div><p class="text-xs text-slate-400 uppercase">磁碟（/）</p><p class="text-lg font-bold" id="sys-disk">0%</p></div>
             <div class="text-right text-xs text-slate-500" id="sys-disk-detail">0 / 0 GB</div>
         </div>
     </div>
 
-    <div class="grid grid-cols-1 gap-6 mb-8">
-        <div class="card h-80" id="chart-24h"></div>
-        <div class="card h-80" id="chart-30d"></div>
-        <div class="card h-80" id="chart-12m"></div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="card h-72" id="chart-24h"></div>
+        <div class="card h-72" id="chart-30d"></div>
+        <div class="card h-72" id="chart-12m"></div>
     </div>
 
     <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-xs text-center space-y-1 pb-8">
-        <p>Total Download: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | Total Upload: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong></p>
-        <p>Interface: <strong id="footer-iface">{{ interface }}</strong> | Maintained by <strong>Tim</strong></p>
+        <p>總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong></p>
+        <p>網卡: <strong id="footer-iface">{{ interface }}</strong> | 維護者 <strong>Tim</strong></p>
     </footer>
 
     <script>
@@ -91,7 +91,7 @@
                 document.getElementById('sys-os').innerText = `${data.os_version} (${data.kernel_version})`;
                 document.getElementById('sys-hostname').innerText = data.hostname;
                 document.getElementById('sys-cpu').innerText = `${data.cpu_percent}%`;
-                document.getElementById('sys-cpu-cores').innerText = `${data.cpu_count} Cores`;
+                document.getElementById('sys-cpu-cores').innerText = `${data.cpu_count} 核心`;
                 document.getElementById('sys-mem').innerText = `${data.memory_percent}%`;
                 document.getElementById('sys-mem-detail').innerText = `${(data.memory_used/1073741824).toFixed(1)} / ${(data.memory_total/1073741824).toFixed(1)} GB`;
                 document.getElementById('sys-disk').innerText = `${data.disk_percent}%`;
@@ -102,7 +102,7 @@
                     dot.className = 'status-dot-ok';
                 } else {
                     dot.className = 'status-dot-error';
-                    document.getElementById('footer-iface').innerText = data.interface + ' (Disconnected)';
+                    document.getElementById('footer-iface').innerText = data.interface + '（已斷線）';
                 }
             } catch (e) {
                 console.error("Error fetching /api/system:", e);
@@ -138,13 +138,13 @@
         const chartOpts = {
             backgroundColor: 'transparent',
             tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-            legend: { data: ['Download', 'Upload'], bottom: 0, textStyle: { color: '#94a3b8' } },
+            legend: { data: ['下載', '上傳'], bottom: 0, textStyle: { color: '#94a3b8' } },
             grid: { left: '2%', right: '4%', bottom: '15%', top: '15%', containLabel: true },
             xAxis: { type: 'category', data: [], axisLabel: { color: '#64748b' } },
             yAxis: { type: 'value', splitLine: { lineStyle: { color: '#334155' } }, axisLabel: { color: '#64748b', formatter: (val) => formatBytes(val) } },
             series: [
-                { name: 'Download', type: 'bar', itemStyle: {color: '#34d399', borderRadius: [4, 4, 0, 0]}, data: [] },
-                { name: 'Upload', type: 'bar', itemStyle: {color: '#60a5fa', borderRadius: [4, 4, 0, 0]}, data: [] }
+                { name: '下載', type: 'bar', itemStyle: {color: '#34d399', borderRadius: [4, 4, 0, 0]}, data: [] },
+                { name: '上傳', type: 'bar', itemStyle: {color: '#60a5fa', borderRadius: [4, 4, 0, 0]}, data: [] }
             ]
         };
 
@@ -152,9 +152,9 @@
         let chart30d = echarts.init(document.getElementById('chart-30d'));
         let chart12m = echarts.init(document.getElementById('chart-12m'));
 
-        chart24h.setOption({...chartOpts, title: { text: 'Last 24 Hours', textStyle: {color: '#cbd5e1', fontSize: 16} }});
-        chart30d.setOption({...chartOpts, title: { text: 'Last 30 Days', textStyle: {color: '#cbd5e1', fontSize: 16} }});
-        chart12m.setOption({...chartOpts, title: { text: 'Last 12 Months', textStyle: {color: '#cbd5e1', fontSize: 16} }});
+        chart24h.setOption({...chartOpts, title: { text: '最近 24 小時', textStyle: {color: '#cbd5e1', fontSize: 16} }});
+        chart30d.setOption({...chartOpts, title: { text: '最近 30 天', textStyle: {color: '#cbd5e1', fontSize: 16} }});
+        chart12m.setOption({...chartOpts, title: { text: '最近 12 個月', textStyle: {color: '#cbd5e1', fontSize: 16} }});
 
         async function fetchCharts() {
             try {
