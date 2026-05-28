@@ -113,7 +113,9 @@ detect_ssl_certificates() {
         local label="$3"
         if [ -n "$cert_file" ] && [ -n "$key_file" ] && [ -f "$cert_file" ] && [ -f "$key_file" ]; then
             candidates+=("$cert_file|$key_file|$label")
-            [ "$DEBUG_SSL" -eq 1 ] && echo "[ssl] candidate: $label | cert=$cert_file | key=$key_file"
+            if [ "$DEBUG_SSL" -eq 1 ]; then
+                echo "[ssl] candidate: $label | cert=$cert_file | key=$key_file"
+            fi
         fi
     }
 
