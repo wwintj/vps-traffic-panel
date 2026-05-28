@@ -9,7 +9,7 @@ SERVICE_NAME="vps-traffic-panel"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NGINX_CONFIG_FILE="/etc/nginx/conf.d/${SERVICE_NAME}.conf"
-INSTALLER_VERSION="2026-05-29.2"
+INSTALLER_VERSION="2026-05-29.3"
 DEBUG_SSL=0
 
 for arg in "$@"; do
@@ -120,7 +120,7 @@ detect_ssl_certificates() {
     if [ -d /etc/letsencrypt/live ]; then
         while IFS= read -r cert_dir; do
             add_cert_candidate "$cert_dir/fullchain.pem" "$cert_dir/privkey.pem" "Let's Encrypt: $(basename "$cert_dir")"
-        done < <(find /etc/letsencrypt/live -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+        done < <(find /etc/letsencrypt/live -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort || true)
     fi
 
     if [ -d /etc/nginx ]; then
@@ -130,7 +130,7 @@ detect_ssl_certificates() {
             cert_file=$(awk '/ssl_certificate[[:space:]]+/ && $1 == "ssl_certificate" {gsub(/;/, "", $2); print $2; exit}' "$nginx_file" 2>/dev/null || true)
             key_file=$(awk '/ssl_certificate_key[[:space:]]+/ {gsub(/;/, "", $2); print $2; exit}' "$nginx_file" 2>/dev/null || true)
             add_cert_candidate "$cert_file" "$key_file" "Nginx config: $nginx_file"
-        done < <(find /etc/nginx \( -type f -o -type l \) \( -name "*.conf" -o -path "*/sites-enabled/*" -o -path "*/sites-available/*" \) 2>/dev/null | sort)
+        done < <(find /etc/nginx \( -type f -o -type l \) \( -name "*.conf" -o -path "*/sites-enabled/*" -o -path "*/sites-available/*" \) 2>/dev/null | sort || true)
     fi
 
     if command -v sqlite3 >/dev/null 2>&1; then
@@ -144,7 +144,7 @@ detect_ssl_certificates() {
                 esac
             done < <(sqlite3 "$db_file" "SELECT key || '=' || value FROM settings;" 2>/dev/null || true)
             add_cert_candidate "$cert_file" "$key_file" "x-ui database: $db_file"
-        done < <(find /etc/x-ui /usr/local/x-ui /usr/local/etc/x-ui -maxdepth 3 -type f \( -name "*.db" -o -name "*.sqlite" \) 2>/dev/null | sort)
+        done < <(find /etc/x-ui /usr/local/x-ui /usr/local/etc/x-ui -maxdepth 3 -type f \( -name "*.db" -o -name "*.sqlite" \) 2>/dev/null | sort || true)
     fi
 
     while IFS= read -r config_dir; do
@@ -155,9 +155,9 @@ detect_ssl_certificates() {
                 *key*|*priv*) key_file="$path_value" ;;
                 *) cert_file="$path_value" ;;
             esac
-        done < <(grep -RohE '/[^"'\'' ;]+[.](pem|crt|cer|key)' "$config_dir" 2>/dev/null | sort -u)
+        done < <(grep -RohE '/[^"'\'' ;]+[.](pem|crt|cer|key)' "$config_dir" 2>/dev/null | sort -u || true)
         add_cert_candidate "$cert_file" "$key_file" "Config path scan: $config_dir"
-    done < <(find /etc/x-ui /usr/local/x-ui /usr/local/etc/x-ui -maxdepth 2 -type d 2>/dev/null | sort)
+    done < <(find /etc/x-ui /usr/local/x-ui /usr/local/etc/x-ui -maxdepth 2 -type d 2>/dev/null | sort || true)
 
     local scan_roots=(
         "/etc/x-ui"
@@ -203,7 +203,7 @@ detect_ssl_certificates() {
                     break
                 fi
             done
-        done < <(find "$root" -maxdepth 5 -type f \( -name "fullchain.pem" -o -name "cert.pem" -o -name "certificate.pem" -o -name "server.crt" -o -name "server.pem" -o -name "*.crt" -o -name "*.cer" -o -name "*.pem" \) 2>/dev/null | sort)
+        done < <(find "$root" -maxdepth 5 -type f \( -name "fullchain.pem" -o -name "cert.pem" -o -name "certificate.pem" -o -name "server.crt" -o -name "server.pem" -o -name "*.crt" -o -name "*.cer" -o -name "*.pem" \) 2>/dev/null | sort || true)
     done
 
     local unique_candidates=()
@@ -287,9 +287,9 @@ detect_ssl_certificates() {
     local default_domain
     default_domain=""
     if command -v openssl >/dev/null 2>&1; then
-        default_domain=$(openssl x509 -in "$SSL_CERTFILE" -noout -ext subjectAltName 2>/dev/null | sed -n 's/.*DNS:\([^, ]*\).*/\1/p' | head -n 1)
+        default_domain=$(openssl x509 -in "$SSL_CERTFILE" -noout -ext subjectAltName 2>/dev/null | sed -n 's/.*DNS:\([^, ]*\).*/\1/p' | head -n 1 || true)
         if [ -z "$default_domain" ]; then
-            default_domain=$(openssl x509 -in "$SSL_CERTFILE" -noout -subject 2>/dev/null | sed -n 's/.*CN[ =]*\([^,\/]*\).*/\1/p' | head -n 1)
+            default_domain=$(openssl x509 -in "$SSL_CERTFILE" -noout -subject 2>/dev/null | sed -n 's/.*CN[ =]*\([^,\/]*\).*/\1/p' | head -n 1 || true)
         fi
     fi
     if [ -z "$default_domain" ]; then
@@ -366,17 +366,22 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-if ! command -v ss >/dev/null 2>&1; then
-    echo -e "${YELLOW}Installing basic network tools for port detection...${RESET}"
-    apt-get update -qq && apt-get install -y iproute2 -qq >/dev/null
-fi
-
 echo -e "${GREEN}=== VPS Traffic Panel Installer ===${RESET}"
 echo -e "${GREEN}Installer version: $INSTALLER_VERSION${RESET}"
 
 INSTALL_DIR="/opt/vps-traffic-panel"
 HOST="0.0.0.0"
 PUBLIC_IP=$(detect_public_ip)
+
+if [ "$DEBUG_SSL" -eq 1 ]; then
+    detect_ssl_certificates
+    exit 0
+fi
+
+if ! command -v ss >/dev/null 2>&1; then
+    echo -e "${YELLOW}Installing basic network tools for port detection...${RESET}"
+    apt-get update -qq && apt-get install -y iproute2 -qq >/dev/null
+fi
 
 cleanup_previous_install "$INSTALL_DIR"
 
