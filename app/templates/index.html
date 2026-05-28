@@ -85,6 +85,7 @@
 
     <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-xs text-center space-y-1 pb-8">
         <p>總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong></p>
+        <p>總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since">...</strong></p>
         <p>網卡: <strong id="footer-iface">{{ interface }}</strong> | 維護者 <strong>Tim</strong></p>
     </footer>
 
@@ -151,6 +152,7 @@
                 document.getElementById('month-tx').innerText = formatBytes(data.month_tx);
                 document.getElementById('total-rx').innerText = formatBytes(data.total_rx);
                 document.getElementById('total-tx').innerText = formatBytes(data.total_tx);
+                document.getElementById('total-since').innerText = data.total_since || '未知';
                 document.getElementById('reset-day').innerText = `每月 ${data.month_reset_day} 日重置`;
             } catch (e) {
                 console.error("Error fetching /api/summary:", e);

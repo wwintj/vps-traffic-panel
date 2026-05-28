@@ -61,3 +61,11 @@ def save_traffic_increment(rx_inc, tx_inc, year, month, day, hour):
     
     conn.commit()
     conn.close()
+
+def get_meta_value(key, default=None):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT value FROM meta_info WHERE key = ?', (key,))
+    row = cursor.fetchone()
+    conn.close()
+    return row["value"] if row else default

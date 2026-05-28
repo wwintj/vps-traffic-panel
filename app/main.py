@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
 from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY
-from app.database import init_db, get_db
+from app.database import init_db, get_db, get_meta_value
 from app.collector import collector_instance
 
 security = HTTPBasic()
@@ -80,6 +80,14 @@ def get_current_cycle_start(now):
     prev_year, prev_month = previous_month(now.year, now.month)
     prev_reset_day = clamp_day(prev_year, prev_month, MONTH_RESET_DAY)
     return datetime(prev_year, prev_month, prev_reset_day)
+
+def format_meta_time(value):
+    if not value:
+        return ""
+    try:
+        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return value
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, username: str = Depends(verify_auth)):
@@ -169,7 +177,8 @@ async def api_summary(username: str = Depends(verify_auth)):
         "month_rx": month_rx, "month_tx": month_tx,
         "total_rx": total_rx, "total_tx": total_tx,
         "month_reset_day": MONTH_RESET_DAY,
-        "cycle_start": cycle_start.isoformat()
+        "cycle_start": cycle_start.isoformat(),
+        "total_since": format_meta_time(get_meta_value("install_time", ""))
     }
 
 @app.get("/api/hourly")

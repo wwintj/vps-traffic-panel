@@ -10,6 +10,13 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NGINX_CONFIG_FILE="/etc/nginx/conf.d/${SERVICE_NAME}.conf"
 INSTALLER_VERSION="2026-05-29.2"
+DEBUG_SSL=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --debug-ssl) DEBUG_SSL=1 ;;
+    esac
+done
 
 cleanup_previous_install() {
     local install_dir="$1"
@@ -106,6 +113,7 @@ detect_ssl_certificates() {
         local label="$3"
         if [ -n "$cert_file" ] && [ -n "$key_file" ] && [ -f "$cert_file" ] && [ -f "$key_file" ]; then
             candidates+=("$cert_file|$key_file|$label")
+            [ "$DEBUG_SSL" -eq 1 ] && echo "[ssl] candidate: $label | cert=$cert_file | key=$key_file"
         fi
     }
 
@@ -214,6 +222,11 @@ detect_ssl_certificates() {
 
     if [ "${#unique_candidates[@]}" -eq 0 ]; then
         echo -e "${YELLOW}No SSL certificate was detected automatically.${RESET}"
+        if [ "$DEBUG_SSL" -eq 1 ]; then
+            echo -e "${YELLOW}Raw certificate/key-like files found:${RESET}"
+            find /etc /usr/local /root /opt -maxdepth 6 -type f \( -name "*.pem" -o -name "*.crt" -o -name "*.cer" -o -name "*.key" \) 2>/dev/null | sort || true
+            exit 0
+        fi
         read -p "Enter certificate paths manually? [y/N]: " manual_ssl
         if [[ ! "$manual_ssl" =~ ^[Yy]$ ]]; then
             echo -e "${YELLOW}The panel will run over HTTP.${RESET}"
@@ -243,6 +256,11 @@ detect_ssl_certificates() {
         echo "      cert: $cert_path"
         echo "      key : $key_path"
     done
+
+    if [ "$DEBUG_SSL" -eq 1 ]; then
+        echo -e "${GREEN}SSL debug completed. No installation changes were made.${RESET}"
+        exit 0
+    fi
 
     local choice
     if [ "${#unique_candidates[@]}" -eq 1 ]; then
@@ -400,6 +418,25 @@ if ! command -v sqlite3 >/dev/null 2>&1 || ! command -v openssl >/dev/null 2>&1;
 fi
 
 detect_ssl_certificates
+
+echo -e "${GREEN}====================================${RESET}"
+echo -e "${GREEN}Install Summary${RESET}"
+echo -e "Install directory    : $INSTALL_DIR"
+echo -e "Public IP            : $PUBLIC_IP"
+echo -e "Bind address         : $HOST"
+echo -e "Web port             : $PORT"
+echo -e "Network interface    : auto-detect"
+echo -e "Monthly reset day    : $MONTH_RESET_DAY"
+echo -e "HTTPS mode           : $HTTPS_MODE"
+if [ "$SSL_ENABLED" -eq 1 ]; then
+    echo -e "SSL certificate      : $SSL_CERTFILE"
+    echo -e "SSL private key      : $SSL_KEYFILE"
+fi
+if [ "$HTTPS_MODE" = "nginx" ]; then
+    echo -e "Panel domain         : $PANEL_DOMAIN"
+    echo -e "Nginx config         : $NGINX_CONFIG_FILE"
+fi
+echo -e "${GREEN}====================================${RESET}"
 
 echo -e "${YELLOW}Installing dependencies...${RESET}"
 apt-get update
