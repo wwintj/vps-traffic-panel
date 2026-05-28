@@ -9,6 +9,7 @@ SERVICE_NAME="vps-traffic-panel"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NGINX_CONFIG_FILE="/etc/nginx/conf.d/${SERVICE_NAME}.conf"
+INSTALLER_VERSION="2026-05-29.2"
 
 cleanup_previous_install() {
     local install_dir="$1"
@@ -78,6 +79,17 @@ choose_port() {
             return
         fi
     done
+}
+
+detect_public_ip() {
+    local ip=""
+    if command -v curl >/dev/null 2>&1; then
+        ip=$(curl -fsS --max-time 3 https://api.ipify.org 2>/dev/null || true)
+    fi
+    if [ -z "$ip" ]; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+    fi
+    echo "${ip:-127.0.0.1}"
 }
 
 detect_ssl_certificates() {
@@ -270,17 +282,14 @@ detect_ssl_certificates() {
     read -p "Panel domain for HTTPS [$default_domain]: " PANEL_DOMAIN
     PANEL_DOMAIN=${PANEL_DOMAIN:-$default_domain}
 
-    if [ -n "$PANEL_DOMAIN" ] && [ "$HOST" = "127.0.0.1" ]; then
+    if [ -n "$PANEL_DOMAIN" ]; then
         HTTPS_MODE="nginx"
         echo -e "${GREEN}HTTPS will be configured through Nginx reverse proxy.${RESET}"
         return
     fi
 
     HTTPS_MODE="uvicorn"
-    if [ "$HOST" = "127.0.0.1" ]; then
-        echo -e "${YELLOW}No panel domain was provided. HTTPS will bind only to 127.0.0.1.${RESET}"
-        echo -e "${YELLOW}For public HTTPS access, provide the domain covered by your certificate.${RESET}"
-    fi
+    echo -e "${YELLOW}No panel domain was provided. HTTPS will use direct service binding.${RESET}"
 }
 
 configure_nginx_proxy() {
@@ -310,7 +319,7 @@ server {
     ssl_certificate_key $SSL_KEYFILE;
 
     location / {
-        proxy_pass http://$HOST:$PORT;
+        proxy_pass http://127.0.0.1:$PORT;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -344,9 +353,11 @@ if ! command -v ss >/dev/null 2>&1; then
 fi
 
 echo -e "${GREEN}=== VPS Traffic Panel Installer ===${RESET}"
+echo -e "${GREEN}Installer version: $INSTALLER_VERSION${RESET}"
 
 INSTALL_DIR="/opt/vps-traffic-panel"
-HOST="127.0.0.1"
+HOST="0.0.0.0"
+PUBLIC_IP=$(detect_public_ip)
 
 cleanup_previous_install "$INSTALL_DIR"
 
@@ -458,7 +469,7 @@ systemctl restart "$SERVICE_NAME"
 configure_nginx_proxy
 
 SCHEME="http"
-ACCESS_HOST="$HOST"
+ACCESS_HOST="$PUBLIC_IP"
 if [ "$HTTPS_MODE" = "nginx" ]; then
     SCHEME="https"
     ACCESS_HOST="$PANEL_DOMAIN"
@@ -477,6 +488,7 @@ echo -e "Check service status : systemctl status $SERVICE_NAME"
 echo -e "View running logs    : journalctl -u $SERVICE_NAME -f"
 echo -e "Install directory    : $INSTALL_DIR"
 echo -e "Bind address         : $HOST"
+echo -e "Public IP            : $PUBLIC_IP"
 echo -e "Web port             : $PORT"
 echo -e "Network interface    : auto-detect"
 echo -e "Monthly reset day    : $MONTH_RESET_DAY"
