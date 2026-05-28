@@ -8,6 +8,7 @@ RESET="\033[0m"
 SERVICE_NAME="vps-traffic-panel"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+NGINX_CONFIG_FILE="/etc/nginx/conf.d/${SERVICE_NAME}.conf"
 
 cleanup_previous_install() {
     local install_dir="$1"
@@ -57,27 +58,77 @@ detect_ssl_certificates() {
     SSL_ENABLED=0
     SSL_CERTFILE=""
     SSL_KEYFILE=""
+    HTTPS_MODE="none"
+    PANEL_DOMAIN=""
 
-    local cert_dirs=()
+    local candidates=()
     if [ -d /etc/letsencrypt/live ]; then
         while IFS= read -r cert_dir; do
-            [ -f "$cert_dir/fullchain.pem" ] && [ -f "$cert_dir/privkey.pem" ] && cert_dirs+=("$cert_dir")
+            [ -f "$cert_dir/fullchain.pem" ] && [ -f "$cert_dir/privkey.pem" ] && candidates+=("$cert_dir/fullchain.pem|$cert_dir/privkey.pem|Let's Encrypt: $(basename "$cert_dir")")
         done < <(find /etc/letsencrypt/live -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
     fi
 
-    if [ "${#cert_dirs[@]}" -eq 0 ]; then
-        echo -e "${YELLOW}No Let's Encrypt SSL certificate found. The panel will run over HTTP.${RESET}"
-        return
+    if [ -d /etc/nginx ]; then
+        while IFS= read -r nginx_file; do
+            local cert_file
+            local key_file
+            cert_file=$(awk '/ssl_certificate[[:space:]]+/ && $1 == "ssl_certificate" {gsub(/;/, "", $2); print $2; exit}' "$nginx_file" 2>/dev/null || true)
+            key_file=$(awk '/ssl_certificate_key[[:space:]]+/ {gsub(/;/, "", $2); print $2; exit}' "$nginx_file" 2>/dev/null || true)
+            if [ -n "$cert_file" ] && [ -n "$key_file" ] && [ -f "$cert_file" ] && [ -f "$key_file" ]; then
+                candidates+=("$cert_file|$key_file|Nginx config: $nginx_file")
+            fi
+        done < <(find /etc/nginx \( -type f -o -type l \) \( -name "*.conf" -o -path "*/sites-enabled/*" -o -path "*/sites-available/*" \) 2>/dev/null | sort)
     fi
 
-    echo -e "${GREEN}Detected existing SSL certificate(s):${RESET}"
-    local i
-    for i in "${!cert_dirs[@]}"; do
-        echo "  $((i + 1))) ${cert_dirs[$i]}"
+    local unique_candidates=()
+    local seen=" "
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        local cert_path="${candidate%%|*}"
+        local rest="${candidate#*|}"
+        local key_path="${rest%%|*}"
+        local key="${cert_path}|${key_path}"
+        case "$seen" in
+            *" $key "*) continue ;;
+        esac
+        seen="$seen$key "
+        unique_candidates+=("$candidate")
     done
 
-    read -p "Use one of these certificates for HTTPS? [y/N]: " use_ssl
-    if [[ ! "$use_ssl" =~ ^[Yy]$ ]]; then
+    if [ "${#unique_candidates[@]}" -eq 0 ]; then
+        echo -e "${YELLOW}No SSL certificate was detected automatically.${RESET}"
+        read -p "Enter certificate paths manually? [y/N]: " manual_ssl
+        if [[ ! "$manual_ssl" =~ ^[Yy]$ ]]; then
+            echo -e "${YELLOW}The panel will run over HTTP.${RESET}"
+            return
+        fi
+
+        while true; do
+            read -p "SSL certificate fullchain path: " SSL_CERTFILE
+            read -p "SSL private key path: " SSL_KEYFILE
+            if [ -f "$SSL_CERTFILE" ] && [ -f "$SSL_KEYFILE" ]; then
+                unique_candidates+=("$SSL_CERTFILE|$SSL_KEYFILE|Manual input")
+                break
+            fi
+            echo -e "${RED}Error: Certificate or key file not found. Please try again.${RESET}"
+        done
+    fi
+
+    echo -e "${GREEN}Detected SSL certificate(s):${RESET}"
+    local i
+    for i in "${!unique_candidates[@]}"; do
+        local item="${unique_candidates[$i]}"
+        local cert_path="${item%%|*}"
+        local rest="${item#*|}"
+        local key_path="${rest%%|*}"
+        local label="${rest#*|}"
+        echo "  $((i + 1))) $label"
+        echo "      cert: $cert_path"
+        echo "      key : $key_path"
+    done
+
+    read -p "Enable HTTPS for the panel with one of these certificates? [Y/n]: " use_ssl
+    if [[ "$use_ssl" =~ ^[Nn]$ ]]; then
         return
     fi
 
@@ -85,15 +136,86 @@ detect_ssl_certificates() {
     while true; do
         read -p "Select certificate number [1]: " choice
         choice=${choice:-1}
-        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#cert_dirs[@]}" ]; then
-            local selected="${cert_dirs[$((choice - 1))]}"
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#unique_candidates[@]}" ]; then
+            local selected="${unique_candidates[$((choice - 1))]}"
+            local rest="${selected#*|}"
             SSL_ENABLED=1
-            SSL_CERTFILE="$selected/fullchain.pem"
-            SSL_KEYFILE="$selected/privkey.pem"
+            SSL_CERTFILE="${selected%%|*}"
+            SSL_KEYFILE="${rest%%|*}"
             break
         fi
         echo -e "${RED}Error: Please choose a valid certificate number.${RESET}"
     done
+
+    if command -v nginx >/dev/null 2>&1; then
+        local default_domain
+        default_domain=$(basename "$(dirname "$SSL_CERTFILE")")
+        [ "$default_domain" = "archive" ] && default_domain=""
+        read -p "Panel domain for HTTPS reverse proxy [$default_domain]: " PANEL_DOMAIN
+        PANEL_DOMAIN=${PANEL_DOMAIN:-$default_domain}
+
+        if [ -n "$PANEL_DOMAIN" ] && [ "$HOST" = "127.0.0.1" ]; then
+            HTTPS_MODE="nginx"
+            echo -e "${GREEN}HTTPS will be configured through Nginx reverse proxy.${RESET}"
+            return
+        fi
+    fi
+
+    HTTPS_MODE="uvicorn"
+    if [ "$HOST" = "127.0.0.1" ]; then
+        echo -e "${YELLOW}Nginx reverse proxy is unavailable or no domain was provided. HTTPS will bind only to 127.0.0.1.${RESET}"
+        echo -e "${YELLOW}For public HTTPS access, install/configure Nginx or bind to 0.0.0.0 with firewall protection.${RESET}"
+    fi
+}
+
+configure_nginx_proxy() {
+    if [ "$HTTPS_MODE" != "nginx" ]; then
+        return
+    fi
+
+    echo -e "${YELLOW}Configuring Nginx HTTPS reverse proxy...${RESET}"
+    mkdir -p "$(dirname "$NGINX_CONFIG_FILE")"
+
+    if [ -f "$NGINX_CONFIG_FILE" ]; then
+        cp "$NGINX_CONFIG_FILE" "${NGINX_CONFIG_FILE}.$(date +"%Y%m%d_%H%M%S").bak"
+    fi
+
+    cat > "$NGINX_CONFIG_FILE" <<EOF
+server {
+    listen 80;
+    server_name $PANEL_DOMAIN;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name $PANEL_DOMAIN;
+
+    ssl_certificate $SSL_CERTFILE;
+    ssl_certificate_key $SSL_KEYFILE;
+
+    location / {
+        proxy_pass http://$HOST:$PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+}
+EOF
+
+    if nginx -t; then
+        systemctl reload nginx
+    else
+        echo -e "${RED}Nginx config test failed. Removing generated config and keeping the panel service running over HTTP.${RESET}"
+        rm -f "$NGINX_CONFIG_FILE"
+        HTTPS_MODE="none"
+        SSL_ENABLED=0
+    fi
 }
 
 if [ "$EUID" -ne 0 ]; then
@@ -177,7 +299,7 @@ apt-get install -y python3 python3-venv python3-pip python3-dev gcc sqlite3 curl
 echo -e "${YELLOW}Copying project files...${RESET}"
 mkdir -p "$INSTALL_DIR"
 
-rsync -av --exclude={'venv','__pycache__','*.db','*.db-shm','*.db-wal','.env','.env.example','backups','*.bak'} "$PROJECT_ROOT/" "$INSTALL_DIR/"
+rsync -av --exclude={'.git','venv','__pycache__','*.db','*.db-shm','*.db-wal','.env','.env.example','backups','*.bak'} "$PROJECT_ROOT/" "$INSTALL_DIR/"
 
 cd "$INSTALL_DIR"
 
@@ -197,11 +319,13 @@ INTERFACE=$INTERFACE
 SSL_ENABLED=$SSL_ENABLED
 SSL_CERTFILE=$SSL_CERTFILE
 SSL_KEYFILE=$SSL_KEYFILE
+HTTPS_MODE=$HTTPS_MODE
+PANEL_DOMAIN=$PANEL_DOMAIN
 EOF
 chmod 600 .env
 
 echo -e "${YELLOW}Configuring systemd service...${RESET}"
-if [ "$SSL_ENABLED" -eq 1 ]; then
+if [ "$HTTPS_MODE" = "uvicorn" ]; then
     EXEC_START="$INSTALL_DIR/venv/bin/uvicorn app.main:app --host \$HOST --port \$PORT --ssl-certfile \$SSL_CERTFILE --ssl-keyfile \$SSL_KEYFILE"
 else
     EXEC_START="$INSTALL_DIR/venv/bin/uvicorn app.main:app --host \$HOST --port \$PORT"
@@ -228,12 +352,24 @@ systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
 
+configure_nginx_proxy
+
 SCHEME="http"
-[ "$SSL_ENABLED" -eq 1 ] && SCHEME="https"
+ACCESS_HOST="$HOST"
+if [ "$HTTPS_MODE" = "nginx" ]; then
+    SCHEME="https"
+    ACCESS_HOST="$PANEL_DOMAIN"
+elif [ "$HTTPS_MODE" = "uvicorn" ]; then
+    SCHEME="https"
+fi
 
 echo -e "${GREEN}====================================${RESET}"
 echo -e "${GREEN}Installation Successful!${RESET}"
-echo -e "Access your panel at : $SCHEME://$HOST:$PORT"
+if [ "$HTTPS_MODE" = "nginx" ]; then
+    echo -e "Access your panel at : $SCHEME://$ACCESS_HOST"
+else
+    echo -e "Access your panel at : $SCHEME://$ACCESS_HOST:$PORT"
+fi
 echo -e "Check service status : systemctl status $SERVICE_NAME"
 echo -e "View running logs    : journalctl -u $SERVICE_NAME -f"
 echo -e "${GREEN}====================================${RESET}"
