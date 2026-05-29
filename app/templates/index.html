@@ -15,6 +15,10 @@
         .progress-fill { height: 100%; width: 0%; border-radius: inherit; transition: width 0.35s ease; }
         .status-dot-ok { height: 8px; width: 8px; background-color: #10b981; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #10b981; }
         .status-dot-error { height: 8px; width: 8px; background-color: #ef4444; border-radius: 50%; display: inline-block; box-shadow: 0 0 8px #ef4444; }
+        .modal-backdrop { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; padding: 1rem; background: rgba(2, 6, 23, 0.78); backdrop-filter: blur(8px); }
+        .modal-backdrop.active { display: flex; }
+        .form-input { width: 100%; margin-top: 0.5rem; border-radius: 0.375rem; border: 1px solid #334155; background: #020617; padding: 0.625rem 0.75rem; color: #f8fafc; outline: none; }
+        .form-input:focus { border-color: #22d3ee; }
     </style>
 </head>
 <body class="p-4 md:p-8 max-w-7xl mx-auto">
@@ -43,13 +47,25 @@
             <p class="text-2xl font-mono text-blue-400" id="tx-speed">0 B/s</p>
         </div>
         <div class="card">
-            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">今日流量（下載 / 上傳）</h3>
-            <p class="text-lg font-mono text-white"><span id="today-rx">0 B</span><br><span class="text-sm text-slate-400" id="today-tx">0 B</span></p>
+            <h3 class="text-slate-400 mb-2 text-xs uppercase tracking-wider">今日 / 本期流量</h3>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <p class="text-xs text-slate-500 mb-1">今日</p>
+                    <p class="text-sm font-mono text-white"><span id="today-rx">0 B</span><br><span class="text-slate-400" id="today-tx">0 B</span></p>
+                </div>
+                <div>
+                    <p class="text-xs text-slate-500 mb-1">本期</p>
+                    <p class="text-sm font-mono text-white"><span id="month-rx">0 B</span><br><span class="text-slate-400" id="month-tx">0 B</span></p>
+                </div>
+            </div>
+            <p class="text-xs text-slate-500 mt-3" id="reset-day">每月 1 日重置</p>
         </div>
         <div class="card">
-            <h3 class="text-slate-400 mb-1 text-xs uppercase tracking-wider">本期流量（下載 / 上傳）</h3>
-            <p class="text-lg font-mono text-white"><span id="month-rx">0 B</span><br><span class="text-sm text-slate-400" id="month-tx">0 B</span></p>
-            <p class="text-xs text-slate-500 mt-2" id="reset-day">每月 1 日重置</p>
+            <h3 class="text-slate-400 mb-3 text-xs uppercase tracking-wider">面板操作</h3>
+            <div class="grid grid-cols-1 gap-3">
+                <button id="open-auth-settings" class="w-full rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm py-2.5 transition">修改密碼</button>
+                <button id="open-panel-settings" class="w-full rounded border border-slate-600 hover:border-cyan-400 text-slate-100 font-bold text-sm py-2.5 transition">修改面板</button>
+            </div>
         </div>
     </div>
 
@@ -83,31 +99,47 @@
         <div class="card h-72" id="chart-12m"></div>
     </div>
 
-    <section class="mb-8">
-        <div class="card">
-            <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-5">
+    <div id="auth-modal" class="modal-backdrop">
+        <div class="card w-full max-w-md">
+            <div class="flex items-start justify-between gap-4 mb-5">
                 <div>
-                    <h2 class="text-lg font-bold text-slate-100">面板設定</h2>
-                    <p class="text-xs text-slate-500 mt-1" id="settings-status">修改登入資訊或面板文案</p>
+                    <h2 class="text-lg font-bold text-slate-100">修改登入資訊</h2>
+                    <p class="text-xs text-slate-500 mt-1" id="auth-settings-status">密碼留空則只修改用戶名</p>
                 </div>
-                <button id="settings-save" class="px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm transition">保存設定</button>
+                <button class="settings-close text-slate-400 hover:text-white text-xl leading-none" data-modal="auth-modal">&times;</button>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label class="text-xs text-slate-400 uppercase">登入用戶名
-                    <input id="settings-username" class="mt-2 w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-400" autocomplete="username">
+            <div class="space-y-4">
+                <label class="block text-xs text-slate-400 uppercase">登入用戶名
+                    <input id="settings-username" class="form-input" autocomplete="username">
                 </label>
-                <label class="text-xs text-slate-400 uppercase">新密碼（留空不修改）
-                    <input id="settings-password" type="password" class="mt-2 w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-400" autocomplete="new-password">
+                <label class="block text-xs text-slate-400 uppercase">新密碼（留空不修改）
+                    <input id="settings-password" type="password" class="form-input" autocomplete="new-password">
                 </label>
-                <label class="text-xs text-slate-400 uppercase">面板標題
-                    <input id="settings-title" class="mt-2 w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-400">
-                </label>
-                <label class="text-xs text-slate-400 uppercase">副標題
-                    <input id="settings-subtitle" class="mt-2 w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-400">
-                </label>
+                <button id="auth-settings-save" class="w-full rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm py-2.5 transition">保存登入資訊</button>
             </div>
         </div>
-    </section>
+    </div>
+
+    <div id="panel-modal" class="modal-backdrop">
+        <div class="card w-full max-w-md">
+            <div class="flex items-start justify-between gap-4 mb-5">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-100">修改面板文字</h2>
+                    <p class="text-xs text-slate-500 mt-1" id="panel-settings-status">保存後會立即更新頁面標題</p>
+                </div>
+                <button class="settings-close text-slate-400 hover:text-white text-xl leading-none" data-modal="panel-modal">&times;</button>
+            </div>
+            <div class="space-y-4">
+                <label class="block text-xs text-slate-400 uppercase">面板標題
+                    <input id="settings-title" class="form-input">
+                </label>
+                <label class="block text-xs text-slate-400 uppercase">副標題
+                    <input id="settings-subtitle" class="form-input">
+                </label>
+                <button id="panel-settings-save" class="w-full rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm py-2.5 transition">保存面板文字</button>
+            </div>
+        </div>
+    </div>
 
     <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-xs text-center space-y-1 pb-8">
         <p>總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong></p>
@@ -143,11 +175,19 @@
             }
         }
 
-        async function saveSettings() {
-            const status = document.getElementById('settings-status');
+        function openModal(id) {
+            document.getElementById(id).classList.add('active');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+
+        async function saveSettings(mode) {
+            const status = document.getElementById(mode === 'auth' ? 'auth-settings-status' : 'panel-settings-status');
             const payload = {
                 auth_username: document.getElementById('settings-username').value,
-                auth_password: document.getElementById('settings-password').value,
+                auth_password: mode === 'auth' ? document.getElementById('settings-password').value : '',
                 panel_title: document.getElementById('settings-title').value,
                 panel_subtitle: document.getElementById('settings-subtitle').value
             };
@@ -164,7 +204,8 @@
                 document.getElementById('panel-title').innerText = payload.panel_title;
                 document.getElementById('panel-subtitle').innerText = payload.panel_subtitle;
                 document.title = payload.panel_title;
-                status.innerText = '已保存。若修改了登入資訊，請重新開啟頁面並用新帳密登入。';
+                status.innerText = mode === 'auth' ? '已保存。請重新開啟頁面並用新帳密登入。' : '已保存，面板文字已更新。';
+                closeModal(mode === 'auth' ? 'auth-modal' : 'panel-modal');
             } catch (e) {
                 status.innerText = '保存失敗，請檢查用戶名、密碼或文案是否有效。';
                 console.error("Error saving /api/settings:", e);
@@ -273,7 +314,18 @@
             }
         }
 
-        document.getElementById('settings-save').addEventListener('click', saveSettings);
+        document.getElementById('open-auth-settings').addEventListener('click', () => openModal('auth-modal'));
+        document.getElementById('open-panel-settings').addEventListener('click', () => openModal('panel-modal'));
+        document.getElementById('auth-settings-save').addEventListener('click', () => saveSettings('auth'));
+        document.getElementById('panel-settings-save').addEventListener('click', () => saveSettings('panel'));
+        document.querySelectorAll('.settings-close').forEach((button) => {
+            button.addEventListener('click', () => closeModal(button.dataset.modal));
+        });
+        document.querySelectorAll('.modal-backdrop').forEach((modal) => {
+            modal.addEventListener('click', (event) => {
+                if (event.target === modal) closeModal(modal.id);
+            });
+        });
         fetchSystem(); fetchSummary(); fetchCharts(); fetchSettings();
         setInterval(fetchRealtime, 2000);
         setInterval(fetchSummary, 5000);
