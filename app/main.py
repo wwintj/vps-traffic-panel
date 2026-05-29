@@ -213,6 +213,10 @@ async def api_realtime(username: str = Depends(verify_auth)):
         "tx_speed": collector_instance.current_tx_speed
     }
 
+@app.get("/api/ping")
+async def api_ping(username: str = Depends(verify_auth)):
+    return {"ok": True, "server_time": datetime.now().isoformat()}
+
 @app.get("/api/system")
 async def api_system(username: str = Depends(verify_auth)):
     try:

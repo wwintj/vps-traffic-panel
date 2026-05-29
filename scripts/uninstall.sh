@@ -1,21 +1,34 @@
 #!/bin/bash
 set -e
 
-cat <<'EOF'
-VPS Traffic Panel uninstall helper
+SERVICE_NAME="vps-traffic-panel"
+INSTALL_DIR="${INSTALL_DIR:-/opt/vps-traffic-panel}"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
-For safety, this script does not remove files automatically.
-Run these commands manually if you want to uninstall:
+if [[ -z "$INSTALL_DIR" || "$INSTALL_DIR" == "/" || "$INSTALL_DIR" == "/opt" ]]; then
+    echo "Refusing to remove unsafe install directory: $INSTALL_DIR"
+    exit 1
+fi
 
-1. Stop and disable the service:
-   systemctl stop vps-traffic-panel
-   systemctl disable vps-traffic-panel
+echo "=== VPS Traffic Panel Uninstaller ==="
 
-2. Remove or archive the service file:
-   mv /etc/systemd/system/vps-traffic-panel.service /etc/systemd/system/vps-traffic-panel.service.disabled
-   systemctl daemon-reload
+if systemctl list-unit-files | grep -q "^${SERVICE_NAME}.service"; then
+    echo "Stopping and disabling service..."
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+fi
 
-3. Archive the installation directory if needed:
-   mv /opt/vps-traffic-panel /opt/vps-traffic-panel.uninstalled
+if [[ -f "$SERVICE_FILE" ]]; then
+    echo "Removing systemd service file..."
+    rm -f "$SERVICE_FILE"
+fi
 
-EOF
+systemctl daemon-reload
+
+if [[ -d "$INSTALL_DIR" ]]; then
+    echo "Removing install directory: $INSTALL_DIR"
+    cd /
+    rm -rf "$INSTALL_DIR"
+fi
+
+echo "Uninstall completed."

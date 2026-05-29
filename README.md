@@ -49,7 +49,7 @@ cd /opt/vps-traffic-panel
 sudo ./scripts/uninstall.sh
 ```
 
-卸載腳本會停止並移除 systemd 服務。若需要完全刪除檔案，可以再手動刪除安裝目錄。
+卸載腳本會停止服務、移除 systemd 服務檔案，並刪除 `/opt/vps-traffic-panel` 安裝目錄。
 
 ## 常用管理命令
 
@@ -65,6 +65,7 @@ journalctl -u vps-traffic-panel -f
 - 今日流量與本期流量
 - 自訂每月流量重置日期
 - 一鍵重置流量統計
+- URL 延遲測試，顯示目前瀏覽器到面板的往返耗時
 - 總下載、總上傳與統計起點
 - 最近 24 小時趨勢
 - 最近 30 天趨勢
