@@ -7,6 +7,7 @@ import json
 import time
 import html
 import re
+import socket
 import urllib.request
 import urllib.parse
 from datetime import datetime, timedelta
@@ -195,9 +196,9 @@ def classify_ip_info(info):
         return "行動網路"
     return "家寬 / 商寬"
 
-def get_cached_public_ip_info():
+def get_cached_public_ip_info(force=False):
     now = time.time()
-    if SYSTEM_INFO_CACHE["public_ip"] and now - SYSTEM_INFO_CACHE["updated_at"] < SYSTEM_INFO_CACHE_TTL:
+    if not force and SYSTEM_INFO_CACHE["public_ip"] and now - SYSTEM_INFO_CACHE["updated_at"] < SYSTEM_INFO_CACHE_TTL:
         return SYSTEM_INFO_CACHE["public_ip"], SYSTEM_INFO_CACHE["ip_info"]
 
     try:
@@ -500,6 +501,88 @@ def match_current_location_label(current_value, locations):
                 return name
     return normalize_current_bandwagon_location(current_value)
 
+def resolve_domain_ips(domain):
+    if not domain:
+        return []
+    try:
+        return sorted(set(socket.gethostbyname_ex(domain)[2]))
+    except Exception:
+        return []
+
+def migration_telegram_message(title, lines):
+    now = configured_now().strftime("%Y-%m-%d %H:%M")
+    body = [f"<b>{escape_html(title)}</b>", f"<code>{now} {escape_html(TELEGRAM_TIMEZONE_LABEL)}</code>", ""]
+    body.extend(lines)
+    return "\n".join(body)
+
+def migration_meta_snapshot():
+    return {
+        "active": get_meta_value("migration_active", "0") == "1",
+        "started_at": format_meta_time(get_meta_value("migration_started_at", "")),
+        "target": get_meta_value("migration_target", ""),
+        "old_ip": get_meta_value("migration_old_ip", ""),
+        "new_ip": get_meta_value("migration_new_ip", ""),
+        "domain": get_meta_value("migration_domain", ""),
+    }
+
+def build_migration_status():
+    meta = migration_meta_snapshot()
+    current_ip, _ = get_cached_public_ip_info(force=True)
+    old_ip = meta["old_ip"]
+    new_ip = meta["new_ip"]
+    ip_changed = bool(old_ip and current_ip != "Unknown" and current_ip != old_ip)
+    if ip_changed and not new_ip:
+        new_ip = current_ip
+        set_meta_value("migration_new_ip", new_ip)
+
+    ddns = {
+        "enabled": CLOUDFLARE_DDNS_ENABLED == "1",
+        "synced": False,
+        "record": CLOUDFLARE_RECORD_NAME,
+        "proxied": CLOUDFLARE_PROXIED == "1",
+        "error": "",
+    }
+    if ip_changed and ddns["enabled"]:
+        try:
+            sync_cloudflare_ddns()
+            ddns["synced"] = True
+        except Exception as exc:
+            ddns["error"] = str(exc)
+
+    domain_ips = resolve_domain_ips(CLOUDFLARE_RECORD_NAME) if CLOUDFLARE_RECORD_NAME else []
+    domain_ok = bool(new_ip and ((ddns["proxied"] and ddns["synced"]) or new_ip in domain_ips))
+
+    if ip_changed and get_meta_value("migration_notified_ip", "0") != "1":
+        send_telegram_message_if_ready(migration_telegram_message("服務器機房切換成功", [
+            f"目標機房：<b>{escape_html(meta['target'] or '未知')}</b>",
+            f"舊 IP：<code>{escape_html(old_ip)}</code>",
+            f"新 IP：<code>{escape_html(new_ip)}</code>",
+        ]))
+        set_meta_value("migration_notified_ip", "1")
+
+    if domain_ok and get_meta_value("migration_notified_dns", "0") != "1":
+        dns_line = "Cloudflare 代理已同步到新 IP。" if ddns["proxied"] else f"解析 IP：<code>{escape_html(new_ip)}</code>"
+        send_telegram_message_if_ready(migration_telegram_message("域名解析已同步", [
+            f"域名：<code>{escape_html(CLOUDFLARE_RECORD_NAME)}</code>",
+            dns_line,
+            "現在可以嘗試使用域名訪問面板。",
+        ]))
+        set_meta_value("migration_notified_dns", "1")
+        set_meta_value("migration_active", "0")
+    elif ip_changed and not ddns["enabled"]:
+        set_meta_value("migration_active", "0")
+
+    return {
+        **meta,
+        "active": get_meta_value("migration_active", "0") == "1",
+        "current_ip": current_ip,
+        "new_ip": new_ip,
+        "ip_changed": ip_changed,
+        "ddns": ddns,
+        "domain_ips": domain_ips,
+        "domain_ok": domain_ok,
+    }
+
 def cloudflare_headers():
     return {
         "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
@@ -611,6 +694,15 @@ def send_telegram_message(text):
     req = urllib.request.Request(url, data=payload, method="POST")
     with urllib.request.urlopen(req, timeout=8) as response:
         return json.loads(response.read().decode("utf-8"))
+
+def send_telegram_message_if_ready(text):
+    if TELEGRAM_ENABLED != "1" or not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return False
+    try:
+        send_telegram_message(text)
+        return True
+    except Exception:
+        return False
 
 def configured_now():
     return datetime.utcnow() + timedelta(hours=TELEGRAM_TIMEZONE_OFFSET)
@@ -825,8 +917,19 @@ async def api_bandwagon_locations(username: str = Depends(verify_auth)):
 @app.post("/api/bandwagon/migrate")
 async def api_bandwagon_migrate(payload: dict, username: str = Depends(verify_auth)):
     location = str(payload.get("location", "")).strip()
+    location_label = str(payload.get("location_label", "")).strip() or location
     if not location:
         raise HTTPException(status_code=400, detail="請先選擇機房")
+
+    old_ip, _ = get_cached_public_ip_info(force=True)
+    set_meta_value("migration_active", "1")
+    set_meta_value("migration_started_at", datetime.now().isoformat())
+    set_meta_value("migration_target", location_label)
+    set_meta_value("migration_old_ip", old_ip)
+    set_meta_value("migration_new_ip", "")
+    set_meta_value("migration_domain", CLOUDFLARE_RECORD_NAME)
+    set_meta_value("migration_notified_ip", "0")
+    set_meta_value("migration_notified_dns", "0")
 
     errors = []
     for action in ("migrate/start", "migrateToLocation"):
@@ -835,10 +938,20 @@ async def api_bandwagon_migrate(payload: dict, username: str = Depends(verify_au
             if data.get("error"):
                 errors.append(str(data.get("message") or data.get("error")))
                 continue
+            await run_blocking(send_telegram_message_if_ready, migration_telegram_message("服務器機房切換已提交", [
+                f"目標機房：<b>{escape_html(location_label)}</b>",
+                f"當前 IP：<code>{escape_html(old_ip)}</code>",
+                "面板會持續檢測新 IP、DDNS 與域名解析狀態。",
+            ]))
             return {"ok": True, "result": data}
         except Exception as exc:
             errors.append(str(exc))
+    set_meta_value("migration_active", "0")
     raise HTTPException(status_code=400, detail="切換機房請求失敗：" + "；".join(errors))
+
+@app.get("/api/bandwagon/migrate-status")
+async def api_bandwagon_migrate_status(username: str = Depends(verify_auth)):
+    return await run_blocking(build_migration_status)
 
 @app.post("/api/traffic/reset")
 async def api_reset_traffic(username: str = Depends(verify_auth)):

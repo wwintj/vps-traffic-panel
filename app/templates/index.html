@@ -610,9 +610,70 @@
             }
         }
 
+        let migrateStatusTimer = null;
+
+        function renderMigrationStatus(data) {
+            const status = document.getElementById('migrate-status');
+            const rows = [
+                `切換監控中：${data.active ? '是' : '否'}`,
+                `舊 IP：${data.old_ip || '未知'}`,
+                `目前 IP：${data.current_ip || '未知'}`,
+                `新 IP：${data.new_ip || (data.ip_changed ? data.current_ip : '等待中')}`,
+            ];
+            if (data.ddns?.enabled) {
+                rows.push(`DDNS：${data.ddns.synced ? '已同步' : data.ddns.error ? `同步失敗：${data.ddns.error}` : '等待同步'}`);
+                rows.push(`域名解析：${data.domain_ok ? (data.ddns.proxied ? 'Cloudflare 代理已同步' : '已解析到新 IP') : `等待解析${data.domain_ips?.length ? `（目前 ${data.domain_ips.join(', ')}）` : ''}`}`);
+            }
+            const toneClass = data.domain_ok || (data.ip_changed && !data.ddns?.enabled)
+                ? 'border-emerald-400/60 bg-emerald-400/10 text-emerald-200'
+                : data.ip_changed
+                    ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-200'
+                    : 'border-amber-400/60 bg-amber-400/10 text-amber-200';
+            status.innerHTML = [
+                `<span class="inline-flex rounded border px-2 py-1 ${toneClass}">${data.ip_changed ? '已檢測到新 IP' : '正在等待服務器恢復 / IP 變更'}</span>`,
+                `<div class="mt-2 space-y-1 font-mono text-[11px] text-slate-300">${rows.map((row) => `<p>${escapeHtml(row)}</p>`).join('')}</div>`
+            ].join('');
+            if (!data.active && (data.ip_changed || data.domain_ok) && migrateStatusTimer) {
+                clearInterval(migrateStatusTimer);
+                migrateStatusTimer = null;
+                fetchSystem();
+                fetchSummary();
+            }
+        }
+
+        async function pollMigrationStatus() {
+            try {
+                const res = await fetch(`/api/bandwagon/migrate-status?t=${Date.now()}`, { cache: 'no-store' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+                renderMigrationStatus(data);
+            } catch (e) {
+                document.getElementById('migrate-status').innerHTML = '<span class="inline-flex rounded border border-amber-400/60 bg-amber-400/10 px-2 py-1 text-amber-200">切換中，面板暫時無法連接，20 秒後繼續檢測...</span>';
+                console.error("Error fetching /api/bandwagon/migrate-status:", e);
+            }
+        }
+
+        function startMigrationPolling() {
+            if (migrateStatusTimer) clearInterval(migrateStatusTimer);
+            pollMigrationStatus();
+            migrateStatusTimer = setInterval(pollMigrationStatus, 20000);
+        }
+
+        async function resumeMigrationPollingIfNeeded() {
+            try {
+                const res = await fetch(`/api/bandwagon/migrate-status?t=${Date.now()}`, { cache: 'no-store' });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.active) startMigrationPolling();
+            } catch (e) {
+                console.error("Error checking migration status:", e);
+            }
+        }
+
         async function startBandwagonMigration() {
             const status = document.getElementById('migrate-status');
             const location = document.getElementById('migrate-location').value;
+            const selectedLocationLabel = document.getElementById('migrate-location').selectedOptions[0]?.textContent || location;
             if (!location) {
                 status.innerText = '請先讀取並選擇機房。';
                 return;
@@ -623,11 +684,12 @@
                 const res = await fetch('/api/bandwagon/migrate', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ location })
+                    body: JSON.stringify({ location, location_label: selectedLocationLabel })
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
-                status.innerText = '切換請求已送出，請到 Bandwagon 後台確認進度。';
+                status.innerHTML = '<span class="inline-flex rounded border border-cyan-400/60 bg-cyan-400/10 px-2 py-1 text-cyan-200">切換請求已送出，正在檢測新 IP、DDNS 與域名解析...</span>';
+                startMigrationPolling();
             } catch (e) {
                 status.innerText = `切換失敗：${e.message}`;
                 console.error("Error posting /api/bandwagon/migrate:", e);
@@ -869,7 +931,7 @@
         document.querySelectorAll('.settings-close').forEach((button) => {
             button.addEventListener('click', () => closeModal(button.dataset.modal));
         });
-        fetchSystem(); fetchSummary(); fetchCharts(); fetchSettings(); fetchTelegramSettings(); fetchDdnsSettings(); fetchBandwagonSettings(); fetchLatency();
+        fetchSystem(); fetchSummary(); fetchCharts(); fetchSettings(); fetchTelegramSettings(); fetchDdnsSettings(); fetchBandwagonSettings(); fetchLatency(); resumeMigrationPollingIfNeeded();
         setInterval(fetchRealtime, 2000);
         setInterval(fetchLatency, 10000);
         setInterval(fetchSummary, 5000);
