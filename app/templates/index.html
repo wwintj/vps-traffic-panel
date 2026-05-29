@@ -290,16 +290,39 @@
             const timezone = document.getElementById('telegram-timezone');
             if (timezone.options.length === 0) {
                 const zones = [
-                    [-12, 'UTC-12'], [-11, 'UTC-11'], [-10, 'UTC-10'], [-9, 'UTC-9'], [-8, 'UTC-8'], [-7, 'UTC-7'], [-6, 'UTC-6'],
-                    [-5, 'UTC-5'], [-4, 'UTC-4'], [-3, 'UTC-3'], [-2, 'UTC-2'], [-1, 'UTC-1'], [0, 'UTC+0'],
-                    [1, 'UTC+1'], [2, 'UTC+2'], [3, 'UTC+3'], [4, 'UTC+4'], [5, 'UTC+5'], [6, 'UTC+6'], [7, 'UTC+7'],
-                    [8, '中國時間 / UTC+8'], [9, 'UTC+9'], [10, 'UTC+10'], [11, 'UTC+11'], [12, 'UTC+12'], [13, 'UTC+13'], [14, 'UTC+14']
+                    [-12, '🇺🇸 貝克島 / UTC-12', '貝克島時間'],
+                    [-11, '🇼🇸 薩摩亞 / UTC-11', '薩摩亞時間'],
+                    [-10, '🇺🇸 夏威夷 / UTC-10', '夏威夷時間'],
+                    [-9, '🇺🇸 阿拉斯加 / UTC-9', '阿拉斯加時間'],
+                    [-8, '🇺🇸 洛杉磯 / UTC-8', '太平洋時間'],
+                    [-7, '🇺🇸 丹佛 / UTC-7', '山區時間'],
+                    [-6, '🇺🇸 芝加哥 / UTC-6', '中部時間'],
+                    [-5, '🇺🇸 紐約 / UTC-5', '東部時間'],
+                    [-4, '🇨🇱 智利 / UTC-4', '智利時間'],
+                    [-3, '🇧🇷 巴西 / UTC-3', '巴西時間'],
+                    [-2, '🇬🇸 南喬治亞 / UTC-2', '南喬治亞時間'],
+                    [-1, '🇨🇻 維德角 / UTC-1', '維德角時間'],
+                    [0, '🇬🇧 英國 / UTC+0', '英國時間'],
+                    [1, '🇩🇪 德國 / UTC+1', '中歐時間'],
+                    [2, '🇿🇦 南非 / UTC+2', '南非時間'],
+                    [3, '🇹🇷 土耳其 / UTC+3', '土耳其時間'],
+                    [4, '🇦🇪 阿聯酋 / UTC+4', '阿聯酋時間'],
+                    [5, '🇵🇰 巴基斯坦 / UTC+5', '巴基斯坦時間'],
+                    [6, '🇧🇩 孟加拉 / UTC+6', '孟加拉時間'],
+                    [7, '🇹🇭 泰國 / UTC+7', '泰國時間'],
+                    [8, '🇨🇳 中國 / UTC+8', '中國時間'],
+                    [9, '🇯🇵 日本 / UTC+9', '日本時間'],
+                    [10, '🇦🇺 澳洲東部 / UTC+10', '澳洲東部時間'],
+                    [11, '🇸🇧 所羅門群島 / UTC+11', '所羅門時間'],
+                    [12, '🇳🇿 紐西蘭 / UTC+12', '紐西蘭時間'],
+                    [13, '🇹🇴 東加 / UTC+13', '東加時間'],
+                    [14, '🇰🇮 基里巴斯 / UTC+14', '基里巴斯時間']
                 ];
-                zones.forEach(([offset, label]) => {
+                zones.forEach(([offset, label, shortLabel]) => {
                     const option = document.createElement('option');
                     option.value = String(offset);
                     option.textContent = label;
-                    option.dataset.label = offset === 8 ? '中國時間' : label;
+                    option.dataset.label = shortLabel;
                     timezone.appendChild(option);
                 });
                 timezone.value = '8';
