@@ -218,11 +218,17 @@ async def api_ping(username: str = Depends(verify_auth)):
     return {"ok": True, "server_time": datetime.now().isoformat()}
 
 @app.get("/api/system")
-async def api_system(username: str = Depends(verify_auth)):
+async def api_system(request: Request, username: str = Depends(verify_auth)):
     try:
         ip = urllib.request.urlopen('https://api.ipify.org', timeout=3).read().decode('utf-8')
     except Exception:
         ip = "Unknown"
+
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    client_ip = forwarded_for.split(",", 1)[0].strip() if forwarded_for else ""
+    if not client_ip and request.client:
+        client_ip = request.client.host
+    client_ip = client_ip or "Unknown"
     
     uptime = "Unknown"
     try:
@@ -237,6 +243,7 @@ async def api_system(username: str = Depends(verify_auth)):
     
     return {
         "public_ip": ip,
+        "client_ip": client_ip,
         "hostname": platform.node(),
         "uptime": uptime,
         "cpu_count": psutil.cpu_count(logical=True),
