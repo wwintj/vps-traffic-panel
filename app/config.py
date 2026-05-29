@@ -9,6 +9,8 @@ PORT = int(os.getenv("PORT", 8088))
 AUTH_USERNAME = os.getenv("AUTH_USERNAME", "admin")
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "admin")
 INTERFACE = os.getenv("INTERFACE", "")
+PANEL_TITLE = os.getenv("PANEL_TITLE", "VPS 監控流量面板")
+PANEL_SUBTITLE = os.getenv("PANEL_SUBTITLE", "Tim哥在三更半夜改好的")
 try:
     MONTH_RESET_DAY = int(os.getenv("MONTH_RESET_DAY", "1"))
 except ValueError:

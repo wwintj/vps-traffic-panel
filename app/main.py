@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
-from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY
+from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE
 from app.database import init_db, get_db, get_meta_value
 from app.collector import collector_instance
 
@@ -44,6 +44,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "app/templates"))
+ENV_PATH = os.path.join(BASE_DIR, ".env")
 
 def get_os_pretty_name():
     try:
@@ -89,9 +90,87 @@ def format_meta_time(value):
     except ValueError:
         return value
 
+def format_env_value(value):
+    value = str(value)
+    if any(ch.isspace() for ch in value) or "#" in value or '"' in value:
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
+
+def update_env_values(updates):
+    existing = {}
+    order = []
+    if os.path.exists(ENV_PATH):
+        with open(ENV_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                raw = line.rstrip("\n")
+                if "=" in raw and not raw.lstrip().startswith("#"):
+                    key, value = raw.split("=", 1)
+                    existing[key] = value
+                    order.append(key)
+
+    for key, value in updates.items():
+        existing[key] = str(value)
+        if key not in order:
+            order.append(key)
+
+    with open(ENV_PATH, "w", encoding="utf-8") as f:
+        for key in order:
+            f.write(f"{key}={format_env_value(existing[key])}\n")
+
+def is_safe_auth_value(value):
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@_.!%-")
+    return bool(value) and all(ch in allowed for ch in value)
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, username: str = Depends(verify_auth)):
-    return templates.TemplateResponse("index.html", {"request": request, "interface": collector_instance.interface})
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "interface": collector_instance.interface,
+        "panel_title": PANEL_TITLE,
+        "panel_subtitle": PANEL_SUBTITLE,
+    })
+
+@app.get("/api/settings")
+async def api_get_settings(username: str = Depends(verify_auth)):
+    return {
+        "auth_username": AUTH_USERNAME,
+        "panel_title": PANEL_TITLE,
+        "panel_subtitle": PANEL_SUBTITLE,
+    }
+
+@app.post("/api/settings")
+async def api_update_settings(payload: dict, username: str = Depends(verify_auth)):
+    global AUTH_USERNAME, AUTH_PASSWORD, PANEL_TITLE, PANEL_SUBTITLE
+
+    new_username = str(payload.get("auth_username", "")).strip()
+    new_password = str(payload.get("auth_password", "")).strip()
+    new_title = str(payload.get("panel_title", "")).strip()
+    new_subtitle = str(payload.get("panel_subtitle", "")).strip()
+
+    if not is_safe_auth_value(new_username):
+        raise HTTPException(status_code=400, detail="Invalid username")
+    if new_password and not is_safe_auth_value(new_password):
+        raise HTTPException(status_code=400, detail="Invalid password")
+    if not new_title or not new_subtitle:
+        raise HTTPException(status_code=400, detail="Panel title and subtitle cannot be empty")
+
+    updates = {
+        "AUTH_USERNAME": new_username,
+        "PANEL_TITLE": new_title,
+        "PANEL_SUBTITLE": new_subtitle,
+    }
+    if new_password:
+        updates["AUTH_PASSWORD"] = new_password
+
+    update_env_values(updates)
+    AUTH_USERNAME = new_username
+    if new_password:
+        AUTH_PASSWORD = new_password
+    PANEL_TITLE = new_title
+    PANEL_SUBTITLE = new_subtitle
+
+    return {"ok": True}
 
 @app.get("/api/realtime")
 async def api_realtime(username: str = Depends(verify_auth)):

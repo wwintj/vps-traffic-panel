@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VPS 監控流量面板</title>
+    <title>{{ panel_title }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <style>
@@ -22,9 +22,9 @@
     <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-700 pb-4">
         <div>
             <h1 class="text-3xl font-bold text-cyan-400 flex items-center gap-3">
-                <span id="iface-status-dot" class="status-dot-ok"></span> VPS 監控流量面板
+                <span id="iface-status-dot" class="status-dot-ok"></span> <span id="panel-title">{{ panel_title }}</span>
             </h1>
-            <p class="text-slate-400 text-sm mt-2">Tim哥在三更半夜改好的</p>
+            <p class="text-slate-400 text-sm mt-2" id="panel-subtitle">{{ panel_subtitle }}</p>
         </div>
         <div class="text-left md:text-right text-sm text-slate-400 mt-4 md:mt-0 space-y-1">
             <p>IP: <span id="sys-ip" class="text-white font-mono">...</span></p>
@@ -83,6 +83,32 @@
         <div class="card h-72" id="chart-12m"></div>
     </div>
 
+    <section class="mb-8">
+        <div class="card">
+            <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-5">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-100">面板設定</h2>
+                    <p class="text-xs text-slate-500 mt-1" id="settings-status">修改登入資訊或面板文案</p>
+                </div>
+                <button id="settings-save" class="px-4 py-2 rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm transition">保存設定</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label class="text-xs text-slate-400 uppercase">登入用戶名
+                    <input id="settings-username" class="mt-2 w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-400" autocomplete="username">
+                </label>
+                <label class="text-xs text-slate-400 uppercase">新密碼（留空不修改）
+                    <input id="settings-password" type="password" class="mt-2 w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-400" autocomplete="new-password">
+                </label>
+                <label class="text-xs text-slate-400 uppercase">面板標題
+                    <input id="settings-title" class="mt-2 w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-400">
+                </label>
+                <label class="text-xs text-slate-400 uppercase">副標題
+                    <input id="settings-subtitle" class="mt-2 w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-slate-100 outline-none focus:border-cyan-400">
+                </label>
+            </div>
+        </div>
+    </section>
+
     <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-xs text-center space-y-1 pb-8">
         <p>總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong></p>
         <p>總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since">...</strong></p>
@@ -100,6 +126,49 @@
         function setProgress(id, value) {
             const percent = Math.max(0, Math.min(100, Number(value) || 0));
             document.getElementById(id).style.width = `${percent}%`;
+        }
+
+        async function fetchSettings() {
+            try {
+                const res = await fetch('/api/settings');
+                const data = await res.json();
+                document.getElementById('settings-username').value = data.auth_username;
+                document.getElementById('settings-title').value = data.panel_title;
+                document.getElementById('settings-subtitle').value = data.panel_subtitle;
+                document.getElementById('panel-title').innerText = data.panel_title;
+                document.getElementById('panel-subtitle').innerText = data.panel_subtitle;
+                document.title = data.panel_title;
+            } catch (e) {
+                console.error("Error fetching /api/settings:", e);
+            }
+        }
+
+        async function saveSettings() {
+            const status = document.getElementById('settings-status');
+            const payload = {
+                auth_username: document.getElementById('settings-username').value,
+                auth_password: document.getElementById('settings-password').value,
+                panel_title: document.getElementById('settings-title').value,
+                panel_subtitle: document.getElementById('settings-subtitle').value
+            };
+
+            try {
+                const res = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error(await res.text());
+
+                document.getElementById('settings-password').value = '';
+                document.getElementById('panel-title').innerText = payload.panel_title;
+                document.getElementById('panel-subtitle').innerText = payload.panel_subtitle;
+                document.title = payload.panel_title;
+                status.innerText = '已保存。若修改了登入資訊，請重新開啟頁面並用新帳密登入。';
+            } catch (e) {
+                status.innerText = '保存失敗，請檢查用戶名、密碼或文案是否有效。';
+                console.error("Error saving /api/settings:", e);
+            }
         }
 
         async function fetchSystem() {
@@ -204,7 +273,8 @@
             }
         }
 
-        fetchSystem(); fetchSummary(); fetchCharts();
+        document.getElementById('settings-save').addEventListener('click', saveSettings);
+        fetchSystem(); fetchSummary(); fetchCharts(); fetchSettings();
         setInterval(fetchRealtime, 2000);
         setInterval(fetchSummary, 5000);
         setInterval(fetchSystem, 5000);
