@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
 from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE
-from app.database import init_db, get_db, get_meta_value
+from app.database import init_db, get_db, get_meta_value, set_meta_value
 from app.collector import collector_instance
 
 security = HTTPBasic()
@@ -97,6 +97,12 @@ def format_env_value(value):
         return f'"{escaped}"'
     return value
 
+def parse_env_value(value):
+    value = value.strip()
+    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+        return value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    return value
+
 def update_env_values(updates):
     existing = {}
     order = []
@@ -106,7 +112,7 @@ def update_env_values(updates):
                 raw = line.rstrip("\n")
                 if "=" in raw and not raw.lstrip().startswith("#"):
                     key, value = raw.split("=", 1)
-                    existing[key] = value
+                    existing[key] = parse_env_value(value)
                     order.append(key)
 
     for key, value in updates.items():
@@ -171,6 +177,34 @@ async def api_update_settings(payload: dict, username: str = Depends(verify_auth
     PANEL_SUBTITLE = new_subtitle
 
     return {"ok": True}
+
+@app.post("/api/traffic/reset")
+async def api_reset_traffic(username: str = Depends(verify_auth)):
+    collector_instance.flush_to_db()
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM hourly_traffic')
+    conn.commit()
+    conn.close()
+    reset_time = datetime.now().isoformat()
+    set_meta_value("install_time", reset_time)
+    return {"ok": True, "total_since": format_meta_time(reset_time)}
+
+@app.post("/api/reset-day")
+async def api_update_reset_day(payload: dict, username: str = Depends(verify_auth)):
+    global MONTH_RESET_DAY
+
+    try:
+        new_day = int(payload.get("month_reset_day", 1))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid reset day")
+
+    if new_day < 1 or new_day > 31:
+        raise HTTPException(status_code=400, detail="Reset day must be between 1 and 31")
+
+    update_env_values({"MONTH_RESET_DAY": new_day})
+    MONTH_RESET_DAY = new_day
+    return {"ok": True, "month_reset_day": MONTH_RESET_DAY}
 
 @app.get("/api/realtime")
 async def api_realtime(username: str = Depends(verify_auth)):

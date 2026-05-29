@@ -58,7 +58,11 @@
                     <p class="text-sm font-mono text-white"><span id="month-rx">0 B</span><br><span class="text-slate-400" id="month-tx">0 B</span></p>
                 </div>
             </div>
-            <p class="text-xs text-slate-500 mt-3" id="reset-day">每月 1 日重置</p>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+                <p class="text-xs text-slate-500 mr-auto" id="reset-day">每月 1 日重置</p>
+                <button id="traffic-reset" class="rounded border border-red-500/50 px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/10 transition">重置流量</button>
+                <button id="open-reset-day" class="rounded border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:border-cyan-400 transition">修改日期</button>
+            </div>
         </div>
         <div class="card">
             <h3 class="text-slate-400 mb-3 text-xs uppercase tracking-wider">面板操作</h3>
@@ -141,6 +145,24 @@
         </div>
     </div>
 
+    <div id="reset-day-modal" class="modal-backdrop">
+        <div class="card w-full max-w-sm">
+            <div class="flex items-start justify-between gap-4 mb-5">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-100">修改流量重置日</h2>
+                    <p class="text-xs text-slate-500 mt-1" id="reset-day-status">本期流量會按新日期重新統計</p>
+                </div>
+                <button class="settings-close text-slate-400 hover:text-white text-xl leading-none" data-modal="reset-day-modal">&times;</button>
+            </div>
+            <div class="space-y-4">
+                <label class="block text-xs text-slate-400 uppercase">每月幾號重置
+                    <select id="reset-day-select" class="form-input"></select>
+                </label>
+                <button id="reset-day-save" class="w-full rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm py-2.5 transition">保存重置日</button>
+            </div>
+        </div>
+    </div>
+
     <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-xs text-center space-y-1 pb-8">
         <p>總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong></p>
         <p>總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since">...</strong></p>
@@ -181,6 +203,17 @@
 
         function closeModal(id) {
             document.getElementById(id).classList.remove('active');
+        }
+
+        function buildResetDayOptions() {
+            const select = document.getElementById('reset-day-select');
+            if (select.options.length > 0) return;
+            for (let day = 1; day <= 31; day++) {
+                const option = document.createElement('option');
+                option.value = String(day);
+                option.textContent = `${day} 日`;
+                select.appendChild(option);
+            }
         }
 
         async function saveSettings(mode) {
@@ -264,8 +297,41 @@
                 document.getElementById('total-tx').innerText = formatBytes(data.total_tx);
                 document.getElementById('total-since').innerText = data.total_since || '未知';
                 document.getElementById('reset-day').innerText = `每月 ${data.month_reset_day} 日重置`;
+                document.getElementById('reset-day-select').value = String(data.month_reset_day);
             } catch (e) {
                 console.error("Error fetching /api/summary:", e);
+            }
+        }
+
+        async function resetTraffic() {
+            if (!confirm('確定要重置所有流量統計嗎？這會清空目前累積的流量資料。')) return;
+            try {
+                const res = await fetch('/api/traffic/reset', { method: 'POST' });
+                if (!res.ok) throw new Error(await res.text());
+                await fetchSummary();
+                await fetchCharts();
+            } catch (e) {
+                alert('重置失敗，請稍後再試。');
+                console.error("Error resetting traffic:", e);
+            }
+        }
+
+        async function saveResetDay() {
+            const status = document.getElementById('reset-day-status');
+            const day = Number(document.getElementById('reset-day-select').value);
+            try {
+                const res = await fetch('/api/reset-day', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({month_reset_day: day})
+                });
+                if (!res.ok) throw new Error(await res.text());
+                status.innerText = '已保存，本期流量已按新日期重新統計。';
+                closeModal('reset-day-modal');
+                await fetchSummary();
+            } catch (e) {
+                status.innerText = '保存失敗，請選擇 1-31 之間的日期。';
+                console.error("Error saving reset day:", e);
             }
         }
 
@@ -314,10 +380,14 @@
             }
         }
 
+        buildResetDayOptions();
         document.getElementById('open-auth-settings').addEventListener('click', () => openModal('auth-modal'));
         document.getElementById('open-panel-settings').addEventListener('click', () => openModal('panel-modal'));
+        document.getElementById('open-reset-day').addEventListener('click', () => openModal('reset-day-modal'));
         document.getElementById('auth-settings-save').addEventListener('click', () => saveSettings('auth'));
         document.getElementById('panel-settings-save').addEventListener('click', () => saveSettings('panel'));
+        document.getElementById('traffic-reset').addEventListener('click', resetTraffic);
+        document.getElementById('reset-day-save').addEventListener('click', saveResetDay);
         document.querySelectorAll('.settings-close').forEach((button) => {
             button.addEventListener('click', () => closeModal(button.dataset.modal));
         });

@@ -69,3 +69,14 @@ def get_meta_value(key, default=None):
     row = cursor.fetchone()
     conn.close()
     return row["value"] if row else default
+
+def set_meta_value(key, value):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO meta_info (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    ''', (key, value))
+    conn.commit()
+    conn.close()
