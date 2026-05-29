@@ -6,6 +6,7 @@ import psutil
 import json
 import time
 import html
+import re
 import urllib.request
 import urllib.parse
 from datetime import datetime, timedelta
@@ -335,20 +336,32 @@ BANDWAGON_LOCATION_FALLBACKS = {
     "HKHK_8": "HK: Hong Kong (CN2 GIA) [HKHK_8]",
     "JPTYO_8": "JP: Tokyo (CN2 GIA) [JPTYO_8]",
     "JPOS_1": "JP: Osaka (SoftBank) [JPOS_1]",
+    "JPOS_2": "JP: Osaka (SoftBank) [JPOS_2]",
     "EUNL_1": "NL: Amsterdam [EUNL_1]",
     "EUNL_2": "NL: Amsterdam [EUNL_2]",
     "EUNL_3": "NL: Amsterdam [EUNL_3]",
     "EUNL_9": "NL: Amsterdam (China Unicom Premium / AS9929) [EUNL_9]",
     "AEDXB_1": "AE: Dubai [AEDXB_1]",
     "AUSYD_1": "AU: New South Wales, Sydney (AS9929) [AUSYD_1]",
+    "USCA_FMT": "US: California, Fremont [USCA_FMT]",
+    "USCA": "US: California, Los Angeles [USCA]",
     "USCA_2": "US: California, Los Angeles (DC2) [USCA_2]",
-    "USCA_3": "US: California, Los Angeles (DC3) [USCA_3]",
-    "USCA_4": "US: California, Los Angeles (DC4) [USCA_4]",
+    "USCA_3": "US: California, Los Angeles (DC3 CN2) [USCA_3]",
+    "USCA_4": "US: California, Los Angeles (DC4 MCOM) [USCA_4]",
     "USCA_6": "US: California, Los Angeles (DC6 CT CN2GIA-E) [USCA_6]",
     "USCA_8": "US: California, Los Angeles (DC8 CN2) [USCA_8]",
     "USCA_9": "US: California, Los Angeles (DC9 CT CN2GIA, CMIN2, CUP) [USCA_9]",
+    "USNY": "US: New York [USNY]",
     "USNY_2": "US: New York [USNY_2]",
+    "USNY_6": "US: New York (Coresite NY1) [USNY_6]",
+    "USNY_8": "US: New York (CN2 GIA + Premium) [USNY_8]",
+    "USNJ": "US: New Jersey [USNJ]",
     "USNJ_2": "US: New Jersey [USNJ_2]",
+    "USFL": "US: Florida [USFL]",
+    "USGA": "US: Georgia, Atlanta [USGA]",
+    "USIL": "US: Illinois, Chicago [USIL]",
+    "USWA": "US: Washington, Seattle [USWA]",
+    "USAZ": "US: Arizona, Phoenix [USAZ]",
     "USAZ_2": "US: Arizona, Phoenix [USAZ_2]",
 }
 
@@ -356,22 +369,35 @@ def infer_bandwagon_location_label(code):
     if code in BANDWAGON_LOCATION_FALLBACKS:
         return BANDWAGON_LOCATION_FALLBACKS[code]
     prefix_labels = (
-        ("HKHK_", "HK: Hong Kong"),
-        ("JPTYO_", "JP: Tokyo"),
-        ("JPOS_", "JP: Osaka"),
-        ("EUNL_", "NL: Amsterdam"),
-        ("AEDXB_", "AE: Dubai"),
-        ("AUSYD_", "AU: New South Wales, Sydney"),
-        ("CABC_", "CA: British Columbia, Vancouver"),
-        ("USCA_", "US: California, Los Angeles"),
-        ("USNY_", "US: New York"),
-        ("USNJ_", "US: New Jersey"),
-        ("USAZ_", "US: Arizona, Phoenix"),
+        ("HKHK", "HK: Hong Kong"),
+        ("JPTYO", "JP: Tokyo"),
+        ("JPOS", "JP: Osaka"),
+        ("EUNL", "NL: Amsterdam"),
+        ("AEDXB", "AE: Dubai"),
+        ("AUSYD", "AU: New South Wales, Sydney"),
+        ("CABC", "CA: British Columbia, Vancouver"),
+        ("USCA_FMT", "US: California, Fremont"),
+        ("USCA", "US: California, Los Angeles"),
+        ("USNY", "US: New York"),
+        ("USNJ", "US: New Jersey"),
+        ("USFL", "US: Florida"),
+        ("USGA", "US: Georgia, Atlanta"),
+        ("USIL", "US: Illinois, Chicago"),
+        ("USWA", "US: Washington, Seattle"),
+        ("USAZ", "US: Arizona, Phoenix"),
     )
     for prefix, label in prefix_labels:
         if code.startswith(prefix):
             return f"{label} [{code}]"
     return code
+
+def extract_bandwagon_code(value):
+    text = str(value or "").strip()
+    bracket_match = re.search(r"\[([A-Z0-9_]+)\]", text)
+    if bracket_match:
+        return bracket_match.group(1)
+    plain_match = re.search(r"\b([A-Z]{2,6}(?:_[A-Z0-9]+)?)\b", text)
+    return plain_match.group(1) if plain_match else text
 
 def normalize_bandwagon_locations(data):
     def pick(item, keys, fallback=""):
@@ -422,11 +448,11 @@ def normalize_bandwagon_locations(data):
 
     for key, item in iterable:
         if isinstance(item, dict):
-            code = str(item.get("id") or item.get("location") or item.get("code") or key)
+            code = extract_bandwagon_code(item.get("id") or item.get("location") or item.get("code") or key)
             name = build_location_label(code, item)
             available = item.get("available", item.get("enabled", True))
         else:
-            code = str(key) if str(key) in BANDWAGON_LOCATION_FALLBACKS else str(item)
+            code = extract_bandwagon_code(key if str(key) in BANDWAGON_LOCATION_FALLBACKS else item)
             name = str(item)
             available = True
         if name == code or len(name) <= len(code) + 8:
