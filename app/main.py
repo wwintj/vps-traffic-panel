@@ -328,6 +328,38 @@ def bandwagon_request(action, params=None):
         return {"raw": raw}
 
 def normalize_bandwagon_locations(data):
+    def pick(item, keys, fallback=""):
+        for key in keys:
+            value = item.get(key)
+            if value not in (None, ""):
+                return str(value)
+        return fallback
+
+    def build_location_label(code, item):
+        if not isinstance(item, dict):
+            return str(item)
+
+        country_code = pick(item, ("country_code", "countryCode", "country", "iso", "region_code"))
+        state = pick(item, ("state", "province", "region", "regionName"))
+        city = pick(item, ("city", "city_name", "location_city"))
+        base = pick(item, ("display", "display_name", "label", "name", "location", "description"), code)
+
+        if country_code and city:
+            place_parts = [part for part in (state, city) if part]
+            base = f"{country_code}: {', '.join(place_parts)}"
+
+        features = pick(item, ("features", "feature", "plan_features", "route", "routes", "network", "network_type"))
+        if isinstance(item.get("features"), list):
+            features = ", ".join(str(part) for part in item["features"])
+        if not features and "(" in base and ")" in base:
+            features = ""
+        if features and features not in base:
+            base = f"{base} ({features})"
+
+        if code and f"[{code}]" not in base:
+            base = f"{base} [{code}]"
+        return base
+
     source = data
     for key in ("locations", "data", "available_locations"):
         if isinstance(source, dict) and key in source:
@@ -345,11 +377,11 @@ def normalize_bandwagon_locations(data):
     for key, item in iterable:
         if isinstance(item, dict):
             code = str(item.get("id") or item.get("location") or item.get("code") or key)
-            name = str(item.get("name") or item.get("label") or item.get("description") or code)
+            name = build_location_label(code, item)
             available = item.get("available", item.get("enabled", True))
         else:
             code = str(item)
-            name = str(item)
+            name = build_location_label(code, item)
             available = True
         locations.append({"code": code, "name": name, "available": bool(available)})
     return locations
