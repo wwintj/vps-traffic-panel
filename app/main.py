@@ -330,12 +330,17 @@ def bandwagon_request(action, params=None):
 BANDWAGON_LOCATION_FALLBACKS = {
     "CABC_1": "CA: British Columbia, Vancouver (AMD-F+NVMe) [CABC_1]",
     "CABC_6": "CA: British Columbia, Vancouver (AMD-F+NVMe, CN2GIA-E, CMIN2, CUP) [CABC_6]",
+    "HKHK_1": "HK: Hong Kong (PCCW) [HKHK_1]",
+    "HKHK_3": "HK: Hong Kong [HKHK_3]",
     "HKHK_8": "HK: Hong Kong (CN2 GIA) [HKHK_8]",
     "JPTYO_8": "JP: Tokyo (CN2 GIA) [JPTYO_8]",
     "JPOS_1": "JP: Osaka (SoftBank) [JPOS_1]",
-    "EUNL_9": "NL: Amsterdam (AS9929) [EUNL_9]",
+    "EUNL_1": "NL: Amsterdam [EUNL_1]",
+    "EUNL_2": "NL: Amsterdam [EUNL_2]",
+    "EUNL_3": "NL: Amsterdam [EUNL_3]",
+    "EUNL_9": "NL: Amsterdam (China Unicom Premium / AS9929) [EUNL_9]",
     "AEDXB_1": "AE: Dubai [AEDXB_1]",
-    "AUSYD_1": "AU: New South Wales, Sydney [AUSYD_1]",
+    "AUSYD_1": "AU: New South Wales, Sydney (AS9929) [AUSYD_1]",
     "USCA_2": "US: California, Los Angeles (DC2) [USCA_2]",
     "USCA_3": "US: California, Los Angeles (DC3) [USCA_3]",
     "USCA_4": "US: California, Los Angeles (DC4) [USCA_4]",
@@ -346,6 +351,27 @@ BANDWAGON_LOCATION_FALLBACKS = {
     "USNJ_2": "US: New Jersey [USNJ_2]",
     "USAZ_2": "US: Arizona, Phoenix [USAZ_2]",
 }
+
+def infer_bandwagon_location_label(code):
+    if code in BANDWAGON_LOCATION_FALLBACKS:
+        return BANDWAGON_LOCATION_FALLBACKS[code]
+    prefix_labels = (
+        ("HKHK_", "HK: Hong Kong"),
+        ("JPTYO_", "JP: Tokyo"),
+        ("JPOS_", "JP: Osaka"),
+        ("EUNL_", "NL: Amsterdam"),
+        ("AEDXB_", "AE: Dubai"),
+        ("AUSYD_", "AU: New South Wales, Sydney"),
+        ("CABC_", "CA: British Columbia, Vancouver"),
+        ("USCA_", "US: California, Los Angeles"),
+        ("USNY_", "US: New York"),
+        ("USNJ_", "US: New Jersey"),
+        ("USAZ_", "US: Arizona, Phoenix"),
+    )
+    for prefix, label in prefix_labels:
+        if code.startswith(prefix):
+            return f"{label} [{code}]"
+    return code
 
 def normalize_bandwagon_locations(data):
     def pick(item, keys, fallback=""):
@@ -403,8 +429,8 @@ def normalize_bandwagon_locations(data):
             code = str(key) if str(key) in BANDWAGON_LOCATION_FALLBACKS else str(item)
             name = str(item)
             available = True
-        if code in BANDWAGON_LOCATION_FALLBACKS and (name == code or len(name) <= len(code) + 8):
-            name = BANDWAGON_LOCATION_FALLBACKS[code]
+        if name == code or len(name) <= len(code) + 8:
+            name = infer_bandwagon_location_label(code)
         locations.append({"code": code, "name": name, "available": bool(available)})
     return locations
 
