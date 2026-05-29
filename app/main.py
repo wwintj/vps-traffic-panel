@@ -3,6 +3,8 @@ import asyncio
 import secrets
 import platform
 import psutil
+import json
+import time
 import urllib.request
 from datetime import datetime, timedelta
 from calendar import monthrange
@@ -45,6 +47,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "app/templates"))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
+SYSTEM_INFO_CACHE = {"public_ip": None, "ip_info": None, "updated_at": 0}
+SYSTEM_INFO_CACHE_TTL = 600
 
 def get_os_pretty_name():
     try:
@@ -127,6 +131,42 @@ def update_env_values(updates):
 def is_safe_auth_value(value):
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@_.!%-")
     return bool(value) and all(ch in allowed for ch in value)
+
+def classify_ip_info(info):
+    if not info or info.get("status") != "success":
+        return "未知"
+    if info.get("hosting"):
+        return "機房 / VPS"
+    if info.get("proxy"):
+        return "代理 / VPN"
+    if info.get("mobile"):
+        return "行動網路"
+    return "家寬 / 商寬"
+
+def get_cached_public_ip_info():
+    now = time.time()
+    if SYSTEM_INFO_CACHE["public_ip"] and now - SYSTEM_INFO_CACHE["updated_at"] < SYSTEM_INFO_CACHE_TTL:
+        return SYSTEM_INFO_CACHE["public_ip"], SYSTEM_INFO_CACHE["ip_info"]
+
+    try:
+        public_ip = urllib.request.urlopen('https://api.ipify.org', timeout=3).read().decode('utf-8')
+    except Exception:
+        public_ip = "Unknown"
+
+    ip_info = {}
+    if public_ip != "Unknown":
+        try:
+            fields = "status,message,country,regionName,city,isp,org,as,query,hosting,proxy,mobile"
+            url = f"http://ip-api.com/json/{public_ip}?fields={fields}&lang=zh-CN"
+            with urllib.request.urlopen(url, timeout=3) as response:
+                ip_info = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            ip_info = {}
+
+    SYSTEM_INFO_CACHE["public_ip"] = public_ip
+    SYSTEM_INFO_CACHE["ip_info"] = ip_info
+    SYSTEM_INFO_CACHE["updated_at"] = now
+    return public_ip, ip_info
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, username: str = Depends(verify_auth)):
@@ -219,10 +259,7 @@ async def api_ping(username: str = Depends(verify_auth)):
 
 @app.get("/api/system")
 async def api_system(request: Request, username: str = Depends(verify_auth)):
-    try:
-        ip = urllib.request.urlopen('https://api.ipify.org', timeout=3).read().decode('utf-8')
-    except Exception:
-        ip = "Unknown"
+    ip, ip_info = get_cached_public_ip_info()
 
     forwarded_for = request.headers.get("x-forwarded-for", "")
     client_ip = forwarded_for.split(",", 1)[0].strip() if forwarded_for else ""
@@ -244,6 +281,15 @@ async def api_system(request: Request, username: str = Depends(verify_auth)):
     return {
         "public_ip": ip,
         "client_ip": client_ip,
+        "ip_location": " / ".join(filter(None, [
+            ip_info.get("country"),
+            ip_info.get("regionName"),
+            ip_info.get("city"),
+        ])) or "Unknown",
+        "ip_isp": ip_info.get("isp") or "Unknown",
+        "ip_org": ip_info.get("org") or "Unknown",
+        "ip_as": ip_info.get("as") or "Unknown",
+        "ip_type": classify_ip_info(ip_info),
         "hostname": platform.node(),
         "uptime": uptime,
         "cpu_count": psutil.cpu_count(logical=True),

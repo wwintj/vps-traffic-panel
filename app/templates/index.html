@@ -61,10 +61,12 @@
                     <p class="text-sm font-mono text-white"><span id="month-rx">0 B</span><br><span class="text-slate-400" id="month-tx">0 B</span></p>
                 </div>
             </div>
-            <div class="mt-3 flex flex-wrap items-center gap-2">
-                <p class="text-xs text-slate-500 mr-auto" id="reset-day">每月 1 日重置</p>
-                <button id="traffic-reset" class="rounded border border-red-500/50 px-2.5 py-1 text-xs text-red-300 hover:bg-red-500/10 transition">重置流量</button>
-                <button id="open-reset-day" class="rounded border border-slate-600 px-2.5 py-1 text-xs text-slate-200 hover:border-cyan-400 transition">修改日期</button>
+            <div class="mt-3 space-y-2">
+                <p class="text-xs text-slate-500" id="reset-day">每月 1 日重置</p>
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="traffic-reset" class="whitespace-nowrap rounded border border-red-500/50 px-2 py-1 text-xs text-red-300 hover:bg-red-500/10 transition">重置流量</button>
+                    <button id="open-reset-day" class="whitespace-nowrap rounded border border-slate-600 px-2 py-1 text-xs text-slate-200 hover:border-cyan-400 transition">修改日期</button>
+                </div>
             </div>
         </div>
         <div class="card">
@@ -72,6 +74,12 @@
             <div class="grid grid-cols-1 gap-3">
                 <button id="open-auth-settings" class="w-full rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm py-2.5 transition">修改密碼</button>
                 <button id="open-panel-settings" class="w-full rounded border border-slate-600 hover:border-cyan-400 text-slate-100 font-bold text-sm py-2.5 transition">修改面板</button>
+            </div>
+            <div class="mt-4 border-t border-slate-700 pt-3 text-xs text-slate-500 space-y-1">
+                <p>伺服器位置: <span id="ip-location" class="text-slate-200">...</span></p>
+                <p>線路類型: <span id="ip-type" class="text-cyan-300 font-mono">...</span></p>
+                <p>ISP: <span id="ip-isp" class="text-slate-300">...</span></p>
+                <p>ASN: <span id="ip-as" class="text-slate-400">...</span></p>
             </div>
         </div>
     </div>
@@ -254,6 +262,10 @@
                 const data = await res.json();
                 document.getElementById('sys-ip').innerText = data.public_ip;
                 document.getElementById('client-ip').innerText = data.client_ip || 'Unknown';
+                document.getElementById('ip-location').innerText = data.ip_location || 'Unknown';
+                document.getElementById('ip-type').innerText = data.ip_type || '未知';
+                document.getElementById('ip-isp').innerText = data.ip_isp || 'Unknown';
+                document.getElementById('ip-as').innerText = data.ip_as || 'Unknown';
                 document.getElementById('sys-uptime').innerText = data.uptime.split('.')[0];
                 document.getElementById('sys-os').innerText = `${data.os_version} / Kernel ${data.kernel_release}`;
                 document.getElementById('sys-cpu').innerText = `${data.cpu_percent}%`;
