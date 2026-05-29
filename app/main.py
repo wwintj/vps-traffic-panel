@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
-from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE, TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, BANDWAGON_VEID, BANDWAGON_API_KEY
+from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE, TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PUSH_HOUR, BANDWAGON_VEID, BANDWAGON_API_KEY
 from app.database import init_db, get_db, get_meta_value, set_meta_value
 from app.collector import collector_instance
 
@@ -287,14 +287,17 @@ def send_telegram_message(text):
     with urllib.request.urlopen(req, timeout=8) as response:
         return json.loads(response.read().decode("utf-8"))
 
+def china_now():
+    return datetime.utcnow() + timedelta(hours=8)
+
 async def telegram_daily_notifier():
     while True:
         try:
             await asyncio.sleep(60)
             if TELEGRAM_ENABLED != "1" or not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
                 continue
-            now = datetime.now()
-            if now.hour != 9:
+            now = china_now()
+            if now.hour != TELEGRAM_PUSH_HOUR:
                 continue
             today_key = now.strftime("%Y-%m-%d")
             if get_meta_value("telegram_last_daily") == today_key:
@@ -370,17 +373,23 @@ async def api_get_telegram_settings(username: str = Depends(verify_auth)):
         "telegram_enabled": TELEGRAM_ENABLED == "1",
         "telegram_chat_id": TELEGRAM_CHAT_ID,
         "telegram_bot_token": TELEGRAM_BOT_TOKEN,
+        "telegram_push_hour": TELEGRAM_PUSH_HOUR,
         "bandwagon_veid": BANDWAGON_VEID,
         "bandwagon_api_key": BANDWAGON_API_KEY,
     }
 
 @app.post("/api/telegram-settings")
 async def api_update_telegram_settings(payload: dict, username: str = Depends(verify_auth)):
-    global TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, BANDWAGON_VEID, BANDWAGON_API_KEY
+    global TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PUSH_HOUR, BANDWAGON_VEID, BANDWAGON_API_KEY
 
     TELEGRAM_ENABLED = "1" if payload.get("telegram_enabled") else "0"
     TELEGRAM_BOT_TOKEN = str(payload.get("telegram_bot_token", "")).strip()
     TELEGRAM_CHAT_ID = str(payload.get("telegram_chat_id", "")).strip()
+    try:
+        TELEGRAM_PUSH_HOUR = int(payload.get("telegram_push_hour", 20))
+    except (TypeError, ValueError):
+        TELEGRAM_PUSH_HOUR = 20
+    TELEGRAM_PUSH_HOUR = max(0, min(23, TELEGRAM_PUSH_HOUR))
     BANDWAGON_VEID = str(payload.get("bandwagon_veid", "")).strip()
     BANDWAGON_API_KEY = str(payload.get("bandwagon_api_key", "")).strip()
 
@@ -388,6 +397,7 @@ async def api_update_telegram_settings(payload: dict, username: str = Depends(ve
         "TELEGRAM_ENABLED": TELEGRAM_ENABLED,
         "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
         "TELEGRAM_CHAT_ID": TELEGRAM_CHAT_ID,
+        "TELEGRAM_PUSH_HOUR": TELEGRAM_PUSH_HOUR,
         "BANDWAGON_VEID": BANDWAGON_VEID,
         "BANDWAGON_API_KEY": BANDWAGON_API_KEY,
     })

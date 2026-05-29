@@ -14,6 +14,11 @@ PANEL_SUBTITLE = os.getenv("PANEL_SUBTITLE", "Tim哥在三更半夜改好的")
 TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "0")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+try:
+    TELEGRAM_PUSH_HOUR = int(os.getenv("TELEGRAM_PUSH_HOUR", "20"))
+except ValueError:
+    TELEGRAM_PUSH_HOUR = 20
+TELEGRAM_PUSH_HOUR = max(0, min(23, TELEGRAM_PUSH_HOUR))
 BANDWAGON_VEID = os.getenv("BANDWAGON_VEID", "")
 BANDWAGON_API_KEY = os.getenv("BANDWAGON_API_KEY", "")
 try:

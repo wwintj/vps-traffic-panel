@@ -75,7 +75,7 @@ journalctl -u vps-traffic-panel -f
 - VPS 系統版本、Kernel、IP、運行時間
 - 修改登入用戶名與密碼
 - 修改面板標題與副標題
-- 退出面板與 Telegram 流量推送設定
+- 退出面板與 Telegram 流量推送設定，推送時間可按中國時間自訂
 - 支援 Bandwagon VEID / API Key 查詢官方流量配額
 - 自動檢測網卡離線狀態
 - Basic Auth 登入保護
