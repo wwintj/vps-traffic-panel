@@ -601,9 +601,9 @@
                     select.appendChild(option);
                 });
                 const current = data.current_location
-                    ? `<span class="inline-flex mt-2 rounded border border-emerald-400/60 bg-emerald-400/10 px-2 py-1 font-mono text-emerald-200">現在使用中的機房：${escapeHtml(data.current_location)}</span>`
-                    : `<span class="inline-flex mt-2 rounded border border-amber-400/60 bg-amber-400/10 px-2 py-1 text-amber-200">現在使用中的機房：未能讀取</span>`;
-                status.innerHTML = `已讀取 ${data.locations.length} 個機房。<br>${current}`;
+                    ? `<span class="inline-flex mt-2 rounded border border-emerald-400/60 bg-emerald-400/10 px-2 py-1 font-mono text-emerald-200">${escapeHtml(data.current_location)}</span>`
+                    : `<span class="inline-flex mt-2 rounded border border-amber-400/60 bg-amber-400/10 px-2 py-1 text-amber-200">未能讀取</span>`;
+                status.innerHTML = `已讀取 ${data.locations.length} 個機房。現在使用中的機房：<br>${current}`;
             } catch (e) {
                 status.innerText = `讀取失敗：${e.message}`;
                 console.error("Error fetching /api/bandwagon/locations:", e);

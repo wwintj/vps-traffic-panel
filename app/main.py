@@ -492,6 +492,12 @@ def match_current_location_label(current_value, locations):
     for location in locations:
         if location.get("code") == code:
             return location.get("name") or normalize_current_bandwagon_location(current_value)
+    current_text = str(current_value or "").strip().lower()
+    if current_text:
+        for location in locations:
+            name = str(location.get("name") or "")
+            if current_text in name.lower():
+                return name
     return normalize_current_bandwagon_location(current_value)
 
 def cloudflare_headers():
