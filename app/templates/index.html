@@ -33,7 +33,8 @@
         <div class="text-left md:text-right text-sm text-slate-400 mt-4 md:mt-0 space-y-1">
             <p>IP: <span id="sys-ip" class="text-white font-mono">...</span></p>
             <p>運行時間: <span id="sys-uptime" class="text-white">...</span></p>
-            <p class="whitespace-nowrap overflow-x-auto pb-1">系統: <span id="sys-os" class="text-white">...</span></p>
+            <p>系統: <span id="sys-os" class="text-white">...</span></p>
+            <p>內核: <span id="sys-kernel" class="text-white font-mono">...</span></p>
         </div>
     </header>
 
@@ -222,7 +223,8 @@
     </div>
 
     <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-xs text-center space-y-1 pb-8">
-        <p>總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong> | 本機 IP: <strong class="text-slate-300 font-mono" id="client-ip">...</strong></p>
+        <p>總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong></p>
+        <p>本機 IP: <strong class="text-slate-300 font-mono" id="client-ip">...</strong></p>
         <p>總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since">...</strong></p>
         <p>網卡: <strong id="footer-iface">{{ interface }}</strong> | 維護者 <strong>Tim</strong></p>
     </footer>
@@ -388,7 +390,8 @@
                 document.getElementById('ip-isp').innerText = data.ip_isp || 'Unknown';
                 document.getElementById('ip-as').innerText = data.ip_as || 'Unknown';
                 document.getElementById('sys-uptime').innerText = data.uptime.split('.')[0];
-                document.getElementById('sys-os').innerText = `${data.os_version} / Kernel ${data.kernel_release}`;
+                document.getElementById('sys-os').innerText = data.os_version;
+                document.getElementById('sys-kernel').innerText = data.kernel_release;
                 document.getElementById('sys-cpu').innerText = `${data.cpu_percent}%`;
                 document.getElementById('sys-cpu-cores').innerText = `${data.cpu_count} 核心`;
                 document.getElementById('sys-mem').innerText = `${data.memory_percent}%`;

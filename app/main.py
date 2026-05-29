@@ -231,10 +231,17 @@ def fetch_bandwagon_info():
     params = urllib.parse.urlencode({"veid": BANDWAGON_VEID, "api_key": BANDWAGON_API_KEY})
     url = f"https://api.64clouds.com/v1/getServiceInfo?{params}"
     try:
-        with urllib.request.urlopen(url, timeout=8) as response:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; VPS-Traffic-Panel/1.0)",
+                "Accept": "application/json,text/plain,*/*",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=8) as response:
             data = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
-        return {"error": str(exc)}
+        return {"error": "暫時無法連接 Bandwagon 官方 API，請稍後再試或檢查 VEID / API Key。"}
     if data.get("error"):
         return {"error": data.get("message") or data.get("error")}
     used = int(data.get("data_counter") or 0) * int(data.get("monthly_data_multiplier") or 1)
@@ -250,27 +257,34 @@ def fetch_bandwagon_info():
 def build_telegram_message():
     summary = get_traffic_summary()
     ip, ip_info = get_cached_public_ip_info()
+    location = " / ".join(filter(None, [ip_info.get('country'), ip_info.get('regionName'), ip_info.get('city')])) or "Unknown"
+    now = china_now().strftime("%Y-%m-%d %H:%M")
     lines = [
         f"{PANEL_TITLE}",
-        f"IP: {ip}",
-        f"位置: {' / '.join(filter(None, [ip_info.get('country'), ip_info.get('regionName'), ip_info.get('city')])) or 'Unknown'}",
-        f"類型: {classify_ip_info(ip_info)}",
+        f"更新時間: {now} 中國時間",
         "",
+        "服務器",
+        f"IP      : {ip}",
+        f"位置    : {location}",
+        f"類型    : {classify_ip_info(ip_info)}",
+        "",
+        "本機統計",
         f"今日下載: {format_bytes(summary['today_rx'])}",
         f"今日上傳: {format_bytes(summary['today_tx'])}",
         f"本期下載: {format_bytes(summary['month_rx'])}",
         f"本期上傳: {format_bytes(summary['month_tx'])}",
-        f"重置日: 每月 {summary['month_reset_day']} 日",
+        f"重置日  : 每月 {summary['month_reset_day']} 日",
     ]
 
     bw = fetch_bandwagon_info()
     if bw:
         lines.append("")
-        lines.append("Bandwagon 官方流量:")
+        lines.append("Bandwagon 官方流量")
         if bw.get("error"):
-            lines.append(f"查詢失敗: {bw['error']}")
+            lines.append(f"狀態: {bw['error']}")
         else:
-            lines.append(f"已用: {format_bytes(bw['used'])}")
+            percent = (bw["used"] / bw["limit"] * 100) if bw.get("limit") else 0
+            lines.append(f"已用: {format_bytes(bw['used'])} ({percent:.1f}%)")
             lines.append(f"配額: {format_bytes(bw['limit'])}")
             if bw.get("reset"):
                 lines.append(f"下次重置: {bw['reset']}")
