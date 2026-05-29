@@ -1,69 +1,57 @@
-# VPS Traffic Panel
+# VPS 監控流量面板
 
-一个极度轻量、安全、无侵入的 VPS 流量监控与展示面板。由 FastAPI 和 ECharts 驱动，数据采集直接读取系统内核态文件 `/proc/net/dev`。完美避开频繁 I/O 与高 CPU 占用，极度适合小内存 VPS（如 1C1G、2C12G）长期驻留。
+一個輕量、直觀、適合長期掛在 VPS 上的流量監控面板。支援即時上下行速度、今日流量、本期流量、最近 24 小時、最近 30 天、最近 12 個月統計，並內建面板文字、登入資訊、流量重置日與流量清零功能。
 
-## 功能列表
+後端使用 FastAPI，資料存入 SQLite，前端使用 ECharts。採集資料直接讀取 Linux 系統的 `/proc/net/dev`，資源占用很低，適合 1C1G 這類小機器。
 
-- **超轻量采集**：无锁读取系统网络状态，资源占用趋近于零。
-- **精确防抖防漂移**：处理网卡重置、系统重启引起的计数器归零；按真实时间属性进行内存分桶缓存落盘，降低跨时段统计漂移。
-- **持久化存储**：开启 SQLite WAL 与 busy_timeout，降低读写冲突概率，适合低并发 VPS 监控面板。
-- **完善 API**：提供 `/api/realtime`、`/api/summary`、`/api/hourly`、`/api/daily`、`/api/monthly`、`/api/system`。
-- **实时监控**：深色 Dashboard，支持 24 小时 / 30 天 / 12 个月趋势图，实时网卡离线提示。
+## 一鍵安裝
 
-## 安全建议：127.0.0.1 vs 0.0.0.0
-
-本项目提供 Basic Auth 认证。安装时建议优先选择：
-
-- **监听 127.0.0.1（强烈推荐）**：面板仅允许本机访问，需要搭配 Nginx 反向代理对外暴露。这是更安全的生产级做法。
-- **监听 0.0.0.0（有风险）**：面板会直接暴露到公网，可通过 IP:端口 访问。只建议在有云防火墙安全组、内网 VPN 或其他访问控制保护下使用，并必须使用强密码。
-
-## 部署方法
-
-### 1. 源码一键安装
-
-建议通过 git clone 获取源码，这样可以支持后续使用 `update.sh` 更新。
+推薦使用 `git clone` 部署，後續升級會更方便。
 
 ```bash
-git clone https://github.com/your-username/vps-traffic-panel.git /opt/vps-traffic-panel-src
+cd /opt
+git clone https://github.com/wwintj/vps-traffic-panel.git vps-traffic-panel-src
 cd /opt/vps-traffic-panel-src
 chmod +x scripts/*.sh
 sudo ./scripts/install.sh
 ```
 
-脚本将自动检测环境、检查端口占用、配置 Python 虚拟环境、配置 systemd 服务并启动。
+安裝腳本會自動完成：
 
-### 2. Nginx 反向代理示例
+- 檢測並處理舊版本安裝
+- 自動檢測網卡
+- 自動檢測可用 SSL 證書
+- 建立 Python 虛擬環境
+- 安裝依賴
+- 生成 `.env` 配置
+- 建立並啟動 systemd 服務
 
-如果安装时选择 `127.0.0.1`，端口选择 `8088`，可以在 Nginx 中加入：
+安裝完成後，終端會顯示面板訪問地址、服務狀態命令和日誌命令。
 
-```nginx
-server {
-    listen 80;
-    server_name monitor.yourdomain.com;
+## 一鍵升級
 
-    location / {
-        proxy_pass http://127.0.0.1:8088;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_read_timeout 120s;
-        proxy_send_timeout 120s;
-    }
-}
-```
-
-测试配置并重新加载：
+已經部署過的 VPS，直接執行：
 
 ```bash
-nginx -t
-systemctl reload nginx
+cd /opt/vps-traffic-panel-src
+git fetch origin
+git reset --hard origin/main
+chmod +x scripts/*.sh
+sudo ./scripts/update.sh
 ```
 
-## systemd 管理命令
+升級腳本會保留你的 `.env`、資料庫和面板設定，只更新程式檔案並重啟服務。
+
+## 一鍵卸載
+
+```bash
+cd /opt/vps-traffic-panel
+sudo ./scripts/uninstall.sh
+```
+
+卸載腳本會停止並移除 systemd 服務。若需要完全刪除檔案，可以再手動刪除安裝目錄。
+
+## 常用管理命令
 
 ```bash
 systemctl status vps-traffic-panel
@@ -71,61 +59,150 @@ systemctl restart vps-traffic-panel
 journalctl -u vps-traffic-panel -f
 ```
 
-## 常见问题排查
+## 面板功能
 
-### 面板数据全部为 0，且左上角圆点为红色
+- 即時下載 / 上傳速度
+- 今日流量與本期流量
+- 自訂每月流量重置日期
+- 一鍵重置流量統計
+- 總下載、總上傳與統計起點
+- 最近 24 小時趨勢
+- 最近 30 天趨勢
+- 最近 12 個月趨勢
+- CPU、記憶體、磁碟使用率進度條
+- VPS 系統版本、Kernel、IP、運行時間
+- 修改登入用戶名與密碼
+- 修改面板標題與副標題
+- 自動檢測網卡離線狀態
+- Basic Auth 登入保護
 
-说明系统内找不到指定网卡。运行：
+## 預設配置
+
+安裝後的主要配置位於：
 
 ```bash
+/opt/vps-traffic-panel/.env
+```
+
+常見配置項：
+
+```ini
+HOST=0.0.0.0
+PORT=8088
+AUTH_USERNAME=admin
+AUTH_PASSWORD=your_password
+PANEL_TITLE="VPS 監控流量面板"
+PANEL_SUBTITLE="Tim哥在三更半夜改好的"
+INTERFACE=
+MONTH_RESET_DAY=1
+SSL_ENABLED=0
+```
+
+通常不需要手動修改。登入資訊、面板文字、流量重置日都可以直接在面板裡修改。
+
+## SSL 說明
+
+安裝腳本會嘗試自動搜尋 VPS 上已有的證書，例如：
+
+- `/root/cert.crt`
+- `/root/private.key`
+- acme.sh 證書目錄
+- x-ui / 3x-ui 使用過的證書路徑
+- Nginx 配置中引用的證書路徑
+
+如果檢測到可用證書，面板會盡量直接使用 HTTPS 啟動。若你的 VPS 前面已經有 Nginx 反向代理，也可以繼續用 Nginx 接管 HTTPS。
+
+## Nginx 反向代理示例
+
+如果你想用域名訪問，可以讓 Nginx 轉發到面板端口：
+
+```nginx
+server {
+    listen 80;
+    server_name monitor.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+重新載入 Nginx：
+
+```bash
+nginx -t
+systemctl reload nginx
+```
+
+## 常見問題
+
+### 面板打不開
+
+先看服務是否正在運行：
+
+```bash
+systemctl status vps-traffic-panel
+```
+
+再看日誌：
+
+```bash
+journalctl -u vps-traffic-panel -f
+```
+
+### 顯示 502 Bad Gateway
+
+通常是 Nginx 還在，但後端面板服務沒有正常啟動。執行：
+
+```bash
+systemctl restart vps-traffic-panel
+systemctl status vps-traffic-panel
+```
+
+### 流量一直是 0
+
+面板會自動偵測預設網卡。如果你的 VPS 網卡比較特殊，可以手動查看：
+
+```bash
+ip route
 ip a
 ```
 
-找到公网网卡名称，例如 `eth0` 或 `ens3`，然后修改安装目录下的 `.env`：
+然後在 `.env` 中指定：
 
 ```ini
-INTERFACE=ens3
+INTERFACE=eth0
 ```
 
-重启服务：
+重啟服務：
 
 ```bash
 systemctl restart vps-traffic-panel
 ```
 
-### 忘记密码
+### 忘記密碼
 
-修改安装目录下的 `.env` 文件：
+優先在面板裡修改。若已經無法登入，可以直接修改：
 
-```ini
-AUTH_PASSWORD=your_new_password
+```bash
+nano /opt/vps-traffic-panel/.env
 ```
 
-然后重启：
+改完後重啟：
 
 ```bash
 systemctl restart vps-traffic-panel
 ```
 
-## 卸载与更新
+## 技術棧
 
-卸载：
-
-```bash
-sudo ./scripts/uninstall.sh
-```
-
-更新：
-
-```bash
-sudo ./scripts/update.sh
-```
-
-## 自检命令
-
-确认 README 没有 Markdown 链接污染：
-
-```bash
-grep -nE '\]\(https?://' README.md
-grep -nE 'git clone \[|proxy_pass \[' README.md
-```
+- FastAPI
+- Uvicorn
+- SQLite
+- ECharts
+- systemd
+- Bash installer
