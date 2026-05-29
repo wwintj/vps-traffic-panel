@@ -6,6 +6,7 @@ import psutil
 import json
 import time
 import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta
 from calendar import monthrange
 from fastapi import FastAPI, Depends, HTTPException, status, Request
@@ -14,7 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
-from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE
+from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE, TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, BANDWAGON_VEID, BANDWAGON_API_KEY
 from app.database import init_db, get_db, get_meta_value, set_meta_value
 from app.collector import collector_instance
 
@@ -35,14 +36,17 @@ def verify_auth(credentials: HTTPBasicCredentials = Depends(security)):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    task = asyncio.create_task(collector_instance.start())
+    collector_task = asyncio.create_task(collector_instance.start())
+    telegram_task = asyncio.create_task(telegram_daily_notifier())
     yield
     collector_instance.running = False
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    collector_task.cancel()
+    telegram_task.cancel()
+    for task in (collector_task, telegram_task):
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "app/templates"))
@@ -168,6 +172,140 @@ def get_cached_public_ip_info():
     SYSTEM_INFO_CACHE["updated_at"] = now
     return public_ip, ip_info
 
+def format_bytes(value):
+    value = int(value or 0)
+    units = ["B", "KB", "MB", "GB", "TB", "PB"]
+    size = float(value)
+    unit_index = 0
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    return f"{size:.2f} {units[unit_index]}"
+
+def get_traffic_summary():
+    now = datetime.now()
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute('''SELECT SUM(rx_bytes), SUM(tx_bytes) FROM hourly_traffic
+                      WHERE year=? AND month=? AND day=?''', (now.year, now.month, now.day))
+    row = cursor.fetchone()
+    today_rx, today_tx = (row[0] or 0), (row[1] or 0)
+
+    cycle_start = get_current_cycle_start(now)
+
+    cursor.execute('''SELECT SUM(rx_bytes), SUM(tx_bytes) FROM hourly_traffic
+                      WHERE datetime(
+                          printf('%04d-%02d-%02d %02d:00:00', year, month, day, hour)
+                      ) >= datetime(?)''', (cycle_start.strftime('%Y-%m-%d %H:%M:%S'),))
+    row = cursor.fetchone()
+    month_rx, month_tx = (row[0] or 0), (row[1] or 0)
+
+    cursor.execute('SELECT SUM(rx_bytes), SUM(tx_bytes) FROM hourly_traffic')
+    row = cursor.fetchone()
+    total_rx, total_tx = (row[0] or 0), (row[1] or 0)
+    conn.close()
+
+    for (y, m, d, h), traffic in collector_instance.pending_buckets.items():
+        if y == now.year and m == now.month and d == now.day:
+            today_rx += traffic["rx"]
+            today_tx += traffic["tx"]
+        if datetime(y, m, d, h) >= cycle_start:
+            month_rx += traffic["rx"]
+            month_tx += traffic["tx"]
+        total_rx += traffic["rx"]
+        total_tx += traffic["tx"]
+
+    return {
+        "today_rx": today_rx, "today_tx": today_tx,
+        "month_rx": month_rx, "month_tx": month_tx,
+        "total_rx": total_rx, "total_tx": total_tx,
+        "month_reset_day": MONTH_RESET_DAY,
+        "cycle_start": cycle_start.isoformat(),
+        "total_since": format_meta_time(get_meta_value("install_time", ""))
+    }
+
+def fetch_bandwagon_info():
+    if not BANDWAGON_VEID or not BANDWAGON_API_KEY:
+        return None
+    params = urllib.parse.urlencode({"veid": BANDWAGON_VEID, "api_key": BANDWAGON_API_KEY})
+    url = f"https://api.64clouds.com/v1/getServiceInfo?{params}"
+    try:
+        with urllib.request.urlopen(url, timeout=8) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        return {"error": str(exc)}
+    if data.get("error"):
+        return {"error": data.get("message") or data.get("error")}
+    used = int(data.get("data_counter") or 0) * int(data.get("monthly_data_multiplier") or 1)
+    limit = int(data.get("plan_monthly_data") or 0) * int(data.get("monthly_data_multiplier") or 1)
+    return {
+        "used": used,
+        "limit": limit,
+        "reset": data.get("data_next_reset") or "",
+        "hostname": data.get("hostname") or "",
+        "node": data.get("node_location") or data.get("node_alias") or "",
+    }
+
+def build_telegram_message():
+    summary = get_traffic_summary()
+    ip, ip_info = get_cached_public_ip_info()
+    lines = [
+        f"{PANEL_TITLE}",
+        f"IP: {ip}",
+        f"位置: {' / '.join(filter(None, [ip_info.get('country'), ip_info.get('regionName'), ip_info.get('city')])) or 'Unknown'}",
+        f"類型: {classify_ip_info(ip_info)}",
+        "",
+        f"今日下載: {format_bytes(summary['today_rx'])}",
+        f"今日上傳: {format_bytes(summary['today_tx'])}",
+        f"本期下載: {format_bytes(summary['month_rx'])}",
+        f"本期上傳: {format_bytes(summary['month_tx'])}",
+        f"重置日: 每月 {summary['month_reset_day']} 日",
+    ]
+
+    bw = fetch_bandwagon_info()
+    if bw:
+        lines.append("")
+        lines.append("Bandwagon 官方流量:")
+        if bw.get("error"):
+            lines.append(f"查詢失敗: {bw['error']}")
+        else:
+            lines.append(f"已用: {format_bytes(bw['used'])}")
+            lines.append(f"配額: {format_bytes(bw['limit'])}")
+            if bw.get("reset"):
+                lines.append(f"下次重置: {bw['reset']}")
+            if bw.get("node"):
+                lines.append(f"節點: {bw['node']}")
+    return "\n".join(lines)
+
+def send_telegram_message(text):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        raise ValueError("Telegram token or chat id is empty")
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = urllib.parse.urlencode({"chat_id": TELEGRAM_CHAT_ID, "text": text}).encode("utf-8")
+    req = urllib.request.Request(url, data=payload, method="POST")
+    with urllib.request.urlopen(req, timeout=8) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+async def telegram_daily_notifier():
+    while True:
+        try:
+            await asyncio.sleep(60)
+            if TELEGRAM_ENABLED != "1" or not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+                continue
+            now = datetime.now()
+            if now.hour != 9:
+                continue
+            today_key = now.strftime("%Y-%m-%d")
+            if get_meta_value("telegram_last_daily") == today_key:
+                continue
+            await asyncio.to_thread(send_telegram_message, build_telegram_message())
+            set_meta_value("telegram_last_daily", today_key)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await asyncio.sleep(300)
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request, username: str = Depends(verify_auth)):
     return templates.TemplateResponse("index.html", {
@@ -176,6 +314,14 @@ async def read_root(request: Request, username: str = Depends(verify_auth)):
         "panel_title": PANEL_TITLE,
         "panel_subtitle": PANEL_SUBTITLE,
     })
+
+@app.get("/logout")
+async def logout():
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Logged out",
+        headers={"WWW-Authenticate": "Basic realm=\"Logged out\""},
+    )
 
 @app.get("/api/settings")
 async def api_get_settings(username: str = Depends(verify_auth)):
@@ -216,6 +362,43 @@ async def api_update_settings(payload: dict, username: str = Depends(verify_auth
     PANEL_TITLE = new_title
     PANEL_SUBTITLE = new_subtitle
 
+    return {"ok": True}
+
+@app.get("/api/telegram-settings")
+async def api_get_telegram_settings(username: str = Depends(verify_auth)):
+    return {
+        "telegram_enabled": TELEGRAM_ENABLED == "1",
+        "telegram_chat_id": TELEGRAM_CHAT_ID,
+        "telegram_bot_token": TELEGRAM_BOT_TOKEN,
+        "bandwagon_veid": BANDWAGON_VEID,
+        "bandwagon_api_key": BANDWAGON_API_KEY,
+    }
+
+@app.post("/api/telegram-settings")
+async def api_update_telegram_settings(payload: dict, username: str = Depends(verify_auth)):
+    global TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, BANDWAGON_VEID, BANDWAGON_API_KEY
+
+    TELEGRAM_ENABLED = "1" if payload.get("telegram_enabled") else "0"
+    TELEGRAM_BOT_TOKEN = str(payload.get("telegram_bot_token", "")).strip()
+    TELEGRAM_CHAT_ID = str(payload.get("telegram_chat_id", "")).strip()
+    BANDWAGON_VEID = str(payload.get("bandwagon_veid", "")).strip()
+    BANDWAGON_API_KEY = str(payload.get("bandwagon_api_key", "")).strip()
+
+    update_env_values({
+        "TELEGRAM_ENABLED": TELEGRAM_ENABLED,
+        "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
+        "TELEGRAM_CHAT_ID": TELEGRAM_CHAT_ID,
+        "BANDWAGON_VEID": BANDWAGON_VEID,
+        "BANDWAGON_API_KEY": BANDWAGON_API_KEY,
+    })
+    return {"ok": True}
+
+@app.post("/api/telegram-test")
+async def api_telegram_test(username: str = Depends(verify_auth)):
+    try:
+        await asyncio.to_thread(send_telegram_message, build_telegram_message())
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}
 
 @app.post("/api/traffic/reset")
@@ -309,47 +492,7 @@ async def api_system(request: Request, username: str = Depends(verify_auth)):
 
 @app.get("/api/summary")
 async def api_summary(username: str = Depends(verify_auth)):
-    now = datetime.now()
-    conn = get_db()
-    cursor = conn.cursor()
-    
-    cursor.execute('''SELECT SUM(rx_bytes), SUM(tx_bytes) FROM hourly_traffic 
-                      WHERE year=? AND month=? AND day=?''', (now.year, now.month, now.day))
-    row = cursor.fetchone()
-    today_rx, today_tx = (row[0] or 0), (row[1] or 0)
-    
-    cycle_start = get_current_cycle_start(now)
-
-    cursor.execute('''SELECT SUM(rx_bytes), SUM(tx_bytes) FROM hourly_traffic 
-                      WHERE datetime(
-                          printf('%04d-%02d-%02d %02d:00:00', year, month, day, hour)
-                      ) >= datetime(?)''', (cycle_start.strftime('%Y-%m-%d %H:%M:%S'),))
-    row = cursor.fetchone()
-    month_rx, month_tx = (row[0] or 0), (row[1] or 0)
-    
-    cursor.execute('SELECT SUM(rx_bytes), SUM(tx_bytes) FROM hourly_traffic')
-    row = cursor.fetchone()
-    total_rx, total_tx = (row[0] or 0), (row[1] or 0)
-    conn.close()
-    
-    for (y, m, d, h), traffic in collector_instance.pending_buckets.items():
-        if y == now.year and m == now.month and d == now.day:
-            today_rx += traffic["rx"]
-            today_tx += traffic["tx"]
-        if datetime(y, m, d, h) >= cycle_start:
-            month_rx += traffic["rx"]
-            month_tx += traffic["tx"]
-        total_rx += traffic["rx"]
-        total_tx += traffic["tx"]
-        
-    return {
-        "today_rx": today_rx, "today_tx": today_tx,
-        "month_rx": month_rx, "month_tx": month_tx,
-        "total_rx": total_rx, "total_tx": total_tx,
-        "month_reset_day": MONTH_RESET_DAY,
-        "cycle_start": cycle_start.isoformat(),
-        "total_since": format_meta_time(get_meta_value("install_time", ""))
-    }
+    return get_traffic_summary()
 
 @app.get("/api/hourly")
 async def api_hourly(username: str = Depends(verify_auth)):

@@ -21,11 +21,11 @@
         .form-input:focus { border-color: #22d3ee; }
     </style>
 </head>
-<body class="p-4 md:p-8 max-w-7xl mx-auto">
+<body class="p-3 md:p-8 max-w-7xl mx-auto">
     
     <header class="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-700 pb-4">
         <div>
-            <h1 class="text-3xl font-bold text-cyan-400 flex items-center gap-3">
+            <h1 class="text-2xl md:text-3xl font-bold text-cyan-400 flex items-center gap-3">
                 <span id="iface-status-dot" class="status-dot-ok"></span> <span id="panel-title">{{ panel_title }}</span>
             </h1>
             <p class="text-slate-400 text-sm mt-2" id="panel-subtitle">{{ panel_subtitle }}</p>
@@ -37,7 +37,7 @@
         </div>
     </header>
 
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-8">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-8">
         <div class="card border-t-4 border-t-cyan-400">
             <h3 class="text-slate-400 mb-3 text-xs uppercase tracking-wider">即時速度</h3>
             <div class="grid grid-cols-2 gap-3">
@@ -83,9 +83,11 @@
         </div>
         <div class="card">
             <h3 class="text-slate-400 mb-3 text-xs uppercase tracking-wider">面板操作</h3>
-            <div class="grid grid-cols-1 gap-3">
+            <div class="grid grid-cols-2 gap-3">
                 <button id="open-auth-settings" class="w-full rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm py-2.5 transition">修改密碼</button>
                 <button id="open-panel-settings" class="w-full rounded border border-slate-600 hover:border-cyan-400 text-slate-100 font-bold text-sm py-2.5 transition">修改面板</button>
+                <button id="open-telegram-settings" class="w-full rounded border border-sky-500/60 hover:border-sky-300 text-sky-200 font-bold text-sm py-2.5 transition">TG 推送</button>
+                <button id="logout-panel" class="w-full rounded border border-red-500/50 hover:bg-red-500/10 text-red-300 font-bold text-sm py-2.5 transition">退出面板</button>
             </div>
         </div>
     </div>
@@ -115,9 +117,9 @@
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div class="card h-72" id="chart-24h"></div>
-        <div class="card h-72" id="chart-30d"></div>
-        <div class="card h-72" id="chart-12m"></div>
+        <div class="card h-64 md:h-72" id="chart-24h"></div>
+        <div class="card h-64 md:h-72" id="chart-30d"></div>
+        <div class="card h-64 md:h-72" id="chart-12m"></div>
     </div>
 
     <div id="auth-modal" class="modal-backdrop">
@@ -180,6 +182,42 @@
         </div>
     </div>
 
+    <div id="telegram-modal" class="modal-backdrop">
+        <div class="card w-full max-w-lg max-h-[92vh] overflow-y-auto">
+            <div class="flex items-start justify-between gap-4 mb-5">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-100">Telegram 推送設定</h2>
+                    <p class="text-xs text-slate-500 mt-1" id="telegram-status">每天 09:00 推送一次流量摘要</p>
+                </div>
+                <button class="settings-close text-slate-400 hover:text-white text-xl leading-none" data-modal="telegram-modal">&times;</button>
+            </div>
+            <div class="space-y-4">
+                <label class="flex items-center gap-2 text-sm text-slate-300">
+                    <input id="telegram-enabled" type="checkbox" class="h-4 w-4 accent-cyan-400">
+                    啟用每日推送
+                </label>
+                <label class="block text-xs text-slate-400 uppercase">Bot Token
+                    <input id="telegram-token" type="password" class="form-input" autocomplete="off">
+                </label>
+                <label class="block text-xs text-slate-400 uppercase">用戶 ID / Chat ID
+                    <input id="telegram-chat-id" class="form-input" autocomplete="off">
+                </label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label class="block text-xs text-slate-400 uppercase">Bandwagon VEID
+                        <input id="bandwagon-veid" class="form-input" autocomplete="off">
+                    </label>
+                    <label class="block text-xs text-slate-400 uppercase">Bandwagon API Key
+                        <input id="bandwagon-api-key" type="password" class="form-input" autocomplete="off">
+                    </label>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="telegram-save" class="w-full rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm py-2.5 transition">保存設定</button>
+                    <button id="telegram-test" class="w-full rounded border border-sky-500/60 hover:border-sky-300 text-sky-200 font-bold text-sm py-2.5 transition">測試推送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-xs text-center space-y-1 pb-8">
         <p>總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong> | 本機 IP: <strong class="text-slate-300 font-mono" id="client-ip">...</strong></p>
         <p>總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since">...</strong></p>
@@ -231,6 +269,65 @@
                 option.textContent = `${day} 日`;
                 select.appendChild(option);
             }
+        }
+
+        async function fetchTelegramSettings() {
+            try {
+                const res = await fetch('/api/telegram-settings');
+                const data = await res.json();
+                document.getElementById('telegram-enabled').checked = Boolean(data.telegram_enabled);
+                document.getElementById('telegram-token').value = data.telegram_bot_token || '';
+                document.getElementById('telegram-chat-id').value = data.telegram_chat_id || '';
+                document.getElementById('bandwagon-veid').value = data.bandwagon_veid || '';
+                document.getElementById('bandwagon-api-key').value = data.bandwagon_api_key || '';
+            } catch (e) {
+                console.error("Error fetching /api/telegram-settings:", e);
+            }
+        }
+
+        async function saveTelegramSettings() {
+            const status = document.getElementById('telegram-status');
+            const payload = {
+                telegram_enabled: document.getElementById('telegram-enabled').checked,
+                telegram_bot_token: document.getElementById('telegram-token').value,
+                telegram_chat_id: document.getElementById('telegram-chat-id').value,
+                bandwagon_veid: document.getElementById('bandwagon-veid').value,
+                bandwagon_api_key: document.getElementById('bandwagon-api-key').value
+            };
+            try {
+                const res = await fetch('/api/telegram-settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error(await res.text());
+                status.innerText = '已保存。啟用後每天 09:00 推送流量摘要。';
+                return true;
+            } catch (e) {
+                status.innerText = '保存失敗，請檢查 Token、Chat ID 或 Bandwagon 資訊。';
+                console.error("Error saving /api/telegram-settings:", e);
+                return false;
+            }
+        }
+
+        async function testTelegramPush() {
+            const status = document.getElementById('telegram-status');
+            const saved = await saveTelegramSettings();
+            if (!saved) return;
+            try {
+                const res = await fetch('/api/telegram-test', { method: 'POST' });
+                if (!res.ok) throw new Error(await res.text());
+                status.innerText = '測試推送已發送。';
+            } catch (e) {
+                status.innerText = '測試推送失敗，請檢查 Bot Token、Chat ID 是否正確。';
+                console.error("Error testing /api/telegram-test:", e);
+            }
+        }
+
+        function logoutPanel() {
+            fetch('/logout', { headers: { Authorization: 'Basic logout' } }).finally(() => {
+                window.location.href = '/logout';
+            });
         }
 
         async function saveSettings(mode) {
@@ -421,9 +518,13 @@
         buildResetDayOptions();
         document.getElementById('open-auth-settings').addEventListener('click', () => openModal('auth-modal'));
         document.getElementById('open-panel-settings').addEventListener('click', () => openModal('panel-modal'));
+        document.getElementById('open-telegram-settings').addEventListener('click', () => openModal('telegram-modal'));
         document.getElementById('open-reset-day').addEventListener('click', () => openModal('reset-day-modal'));
         document.getElementById('auth-settings-save').addEventListener('click', () => saveSettings('auth'));
         document.getElementById('panel-settings-save').addEventListener('click', () => saveSettings('panel'));
+        document.getElementById('telegram-save').addEventListener('click', saveTelegramSettings);
+        document.getElementById('telegram-test').addEventListener('click', testTelegramPush);
+        document.getElementById('logout-panel').addEventListener('click', logoutPanel);
         document.getElementById('traffic-reset').addEventListener('click', resetTraffic);
         document.getElementById('reset-day-save').addEventListener('click', saveResetDay);
         document.querySelectorAll('.settings-close').forEach((button) => {
@@ -434,7 +535,7 @@
                 if (event.target === modal) closeModal(modal.id);
             });
         });
-        fetchSystem(); fetchSummary(); fetchCharts(); fetchSettings(); fetchLatency();
+        fetchSystem(); fetchSummary(); fetchCharts(); fetchSettings(); fetchTelegramSettings(); fetchLatency();
         setInterval(fetchRealtime, 2000);
         setInterval(fetchLatency, 10000);
         setInterval(fetchSummary, 5000);

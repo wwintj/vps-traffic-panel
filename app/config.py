@@ -11,6 +11,11 @@ AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "admin")
 INTERFACE = os.getenv("INTERFACE", "")
 PANEL_TITLE = os.getenv("PANEL_TITLE", "VPS 監控流量面板")
 PANEL_SUBTITLE = os.getenv("PANEL_SUBTITLE", "Tim哥在三更半夜改好的")
+TELEGRAM_ENABLED = os.getenv("TELEGRAM_ENABLED", "0")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+BANDWAGON_VEID = os.getenv("BANDWAGON_VEID", "")
+BANDWAGON_API_KEY = os.getenv("BANDWAGON_API_KEY", "")
 try:
     MONTH_RESET_DAY = int(os.getenv("MONTH_RESET_DAY", "1"))
 except ValueError:
