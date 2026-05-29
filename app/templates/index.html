@@ -45,13 +45,14 @@
             <div class="grid grid-cols-2 gap-3">
                 <div>
                     <p class="text-xs text-slate-500 mb-1">↓ 下載</p>
-                    <p class="text-xl font-mono text-emerald-400" id="rx-speed">0 B/s</p>
+                    <p class="text-lg xl:text-xl font-mono text-emerald-400 whitespace-nowrap tabular-nums" id="rx-speed">0 B/s</p>
                 </div>
                 <div>
                     <p class="text-xs text-slate-500 mb-1">↑ 上傳</p>
-                    <p class="text-xl font-mono text-blue-400" id="tx-speed">0 B/s</p>
+                    <p class="text-lg xl:text-xl font-mono text-blue-400 whitespace-nowrap tabular-nums" id="tx-speed">0 B/s</p>
                 </div>
             </div>
+            <button id="open-ddns-settings" class="mt-4 w-full rounded border border-emerald-500/50 hover:border-emerald-300 text-emerald-200 font-bold text-sm py-2 transition">DDNS</button>
         </div>
         <div class="card border-t-4 border-t-violet-400">
             <h3 class="text-slate-400 mb-3 text-xs uppercase tracking-wider">伺服器信息</h3>
@@ -89,7 +90,8 @@
                 <button id="open-auth-settings" class="w-full rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm py-2.5 transition">修改密碼</button>
                 <button id="open-panel-settings" class="w-full rounded border border-slate-600 hover:border-cyan-400 text-slate-100 font-bold text-sm py-2.5 transition">修改面板</button>
                 <button id="open-telegram-settings" class="w-full rounded border border-sky-500/60 hover:border-sky-300 text-sky-200 font-bold text-sm py-2.5 transition">TG 推送</button>
-                <button id="logout-panel" class="w-full rounded border border-red-500/50 hover:bg-red-500/10 text-red-300 font-bold text-sm py-2.5 transition">退出面板</button>
+                <button id="open-migrate-settings" class="w-full rounded border border-violet-500/60 hover:border-violet-300 text-violet-200 font-bold text-sm py-2.5 transition">切換機房</button>
+                <button id="logout-panel" class="w-full rounded border border-red-500/50 hover:bg-red-500/10 text-red-300 font-bold text-sm py-2.5 transition sm:col-span-2 lg:col-span-1">退出面板</button>
             </div>
         </div>
     </div>
@@ -206,7 +208,7 @@
                 </label>
                 <div class="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_5rem_5rem] gap-4">
                     <label class="block text-xs text-slate-400 uppercase">推送時區
-                        <select id="telegram-timezone" class="form-input"></select>
+                        <select id="telegram-timezone" class="form-input font-mono"></select>
                     </label>
                     <label class="block text-xs text-slate-400 uppercase">小時
                         <select id="telegram-push-hour" class="form-input"></select>
@@ -226,6 +228,70 @@
                 <div class="grid grid-cols-2 gap-3">
                     <button id="telegram-save" class="w-full rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm py-2.5 transition">保存設定</button>
                     <button id="telegram-test" class="w-full rounded border border-sky-500/60 hover:border-sky-300 text-sky-200 font-bold text-sm py-2.5 transition">測試推送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="ddns-modal" class="modal-backdrop">
+        <div class="card w-full max-w-lg max-h-[92vh] overflow-y-auto">
+            <div class="flex items-start justify-between gap-4 mb-5">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-100">Cloudflare DDNS</h2>
+                    <p class="text-xs text-slate-500 mt-1" id="ddns-status">VPS 公網 IP 變動時會自動同步 A 記錄</p>
+                </div>
+                <button class="settings-close text-slate-400 hover:text-white text-xl leading-none" data-modal="ddns-modal">&times;</button>
+            </div>
+            <div class="space-y-4">
+                <label class="flex items-center gap-2 text-sm text-slate-300">
+                    <input id="ddns-enabled" type="checkbox" class="h-4 w-4 accent-emerald-400">
+                    啟用 Cloudflare DDNS
+                </label>
+                <label class="block text-xs text-slate-400 uppercase">Cloudflare API Token
+                    <input id="ddns-token" type="password" class="form-input" autocomplete="off">
+                </label>
+                <label class="block text-xs text-slate-400 uppercase">Zone ID
+                    <input id="ddns-zone-id" class="form-input" autocomplete="off">
+                </label>
+                <label class="block text-xs text-slate-400 uppercase">完整域名
+                    <input id="ddns-record-name" class="form-input" placeholder="monitor.example.com" autocomplete="off">
+                </label>
+                <label class="flex items-center gap-2 text-sm text-slate-300">
+                    <input id="ddns-proxied" type="checkbox" class="h-4 w-4 accent-orange-400">
+                    啟用 Cloudflare 代理雲朵
+                </label>
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="ddns-save" class="w-full rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm py-2.5 transition">保存設定</button>
+                    <button id="ddns-sync" class="w-full rounded border border-emerald-500/60 hover:border-emerald-300 text-emerald-200 font-bold text-sm py-2.5 transition">立即同步</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="migrate-modal" class="modal-backdrop">
+        <div class="card w-full max-w-lg max-h-[92vh] overflow-y-auto">
+            <div class="flex items-start justify-between gap-4 mb-5">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-100">切換 Bandwagon 機房</h2>
+                    <p class="text-xs text-slate-500 mt-1" id="migrate-status">先讀取可用機房，再確認切換</p>
+                </div>
+                <button class="settings-close text-slate-400 hover:text-white text-xl leading-none" data-modal="migrate-modal">&times;</button>
+            </div>
+            <div class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label class="block text-xs text-slate-400 uppercase">Bandwagon VEID
+                        <input id="migrate-veid" class="form-input" autocomplete="off">
+                    </label>
+                    <label class="block text-xs text-slate-400 uppercase">Bandwagon API Key
+                        <input id="migrate-api-key" type="password" class="form-input" autocomplete="off">
+                    </label>
+                </div>
+                <label class="block text-xs text-slate-400 uppercase">可切換機房
+                    <select id="migrate-location" class="form-input"></select>
+                </label>
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="migrate-load" class="w-full rounded border border-violet-500/60 hover:border-violet-300 text-violet-200 font-bold text-sm py-2.5 transition">讀取機房</button>
+                    <button id="migrate-start" class="w-full rounded bg-violet-500 hover:bg-violet-400 text-slate-950 font-bold text-sm py-2.5 transition">確認切換</button>
                 </div>
             </div>
         </div>
@@ -286,37 +352,42 @@
             }
         }
 
+        function timezoneDisplay(flag, city, country, offset) {
+            const utc = offset >= 0 ? `UTC+${offset}` : `UTC${offset}`;
+            return `${flag}  ${city.padEnd(8, ' ')} ${country.padEnd(8, ' ')} ${utc}`;
+        }
+
         function buildTelegramScheduleOptions() {
             const timezone = document.getElementById('telegram-timezone');
             if (timezone.options.length === 0) {
                 const zones = [
-                    [-12, '🇺🇸 貝克島 美國 UTC-12', '貝克島時間'],
-                    [-11, '🇼🇸 阿皮亞 薩摩亞 UTC-11', '薩摩亞時間'],
-                    [-10, '🇺🇸 檀香山 美國 UTC-10', '夏威夷時間'],
-                    [-9, '🇺🇸 安克雷奇 美國 UTC-9', '阿拉斯加時間'],
-                    [-8, '🇺🇸 洛杉磯 美國 UTC-8', '太平洋時間'],
-                    [-7, '🇺🇸 丹佛 美國 UTC-7', '山區時間'],
-                    [-6, '🇺🇸 芝加哥 美國 UTC-6', '中部時間'],
-                    [-5, '🇺🇸 紐約 美國 UTC-5', '東部時間'],
-                    [-4, '🇨🇱 聖地牙哥 智利 UTC-4', '智利時間'],
-                    [-3, '🇧🇷 聖保羅 巴西 UTC-3', '巴西時間'],
-                    [-2, '🇬🇸 古利德維肯 南喬治亞 UTC-2', '南喬治亞時間'],
-                    [-1, '🇨🇻 普拉亞 維德角 UTC-1', '維德角時間'],
-                    [0, '🇬🇧 倫敦 英國 UTC+0', '英國時間'],
-                    [1, '🇩🇪 柏林 德國 UTC+1', '中歐時間'],
-                    [2, '🇿🇦 約翰尼斯堡 南非 UTC+2', '南非時間'],
-                    [3, '🇹🇷 伊斯坦堡 土耳其 UTC+3', '土耳其時間'],
-                    [4, '🇦🇪 杜拜 阿聯酋 UTC+4', '阿聯酋時間'],
-                    [5, '🇵🇰 卡拉奇 巴基斯坦 UTC+5', '巴基斯坦時間'],
-                    [6, '🇧🇩 達卡 孟加拉 UTC+6', '孟加拉時間'],
-                    [7, '🇹🇭 曼谷 泰國 UTC+7', '泰國時間'],
-                    [8, '🇨🇳 上海 中國 UTC+8', '中國時間'],
-                    [9, '🇯🇵 東京 日本 UTC+9', '日本時間'],
-                    [10, '🇦🇺 雪梨 澳洲 UTC+10', '澳洲東部時間'],
-                    [11, '🇸🇧 霍尼亞拉 所羅門群島 UTC+11', '所羅門時間'],
-                    [12, '🇳🇿 奧克蘭 紐西蘭 UTC+12', '紐西蘭時間'],
-                    [13, '🇹🇴 努瓜婁發 東加 UTC+13', '東加時間'],
-                    [14, '🇰🇮 聖誕島 基里巴斯 UTC+14', '基里巴斯時間']
+                    [-12, timezoneDisplay('🇺🇸', '貝克島', '美國', -12), '貝克島時間'],
+                    [-11, timezoneDisplay('🇼🇸', '阿皮亞', '薩摩亞', -11), '薩摩亞時間'],
+                    [-10, timezoneDisplay('🇺🇸', '檀香山', '美國', -10), '夏威夷時間'],
+                    [-9, timezoneDisplay('🇺🇸', '安克雷奇', '美國', -9), '阿拉斯加時間'],
+                    [-8, timezoneDisplay('🇺🇸', '洛杉磯', '美國', -8), '太平洋時間'],
+                    [-7, timezoneDisplay('🇺🇸', '丹佛', '美國', -7), '山區時間'],
+                    [-6, timezoneDisplay('🇺🇸', '芝加哥', '美國', -6), '中部時間'],
+                    [-5, timezoneDisplay('🇺🇸', '紐約', '美國', -5), '東部時間'],
+                    [-4, timezoneDisplay('🇨🇱', '聖地牙哥', '智利', -4), '智利時間'],
+                    [-3, timezoneDisplay('🇧🇷', '聖保羅', '巴西', -3), '巴西時間'],
+                    [-2, timezoneDisplay('🇬🇸', '古利德維肯', '南喬治亞', -2), '南喬治亞時間'],
+                    [-1, timezoneDisplay('🇨🇻', '普拉亞', '維德角', -1), '維德角時間'],
+                    [0, timezoneDisplay('🇬🇧', '倫敦', '英國', 0), '英國時間'],
+                    [1, timezoneDisplay('🇩🇪', '柏林', '德國', 1), '中歐時間'],
+                    [2, timezoneDisplay('🇿🇦', '約翰尼斯堡', '南非', 2), '南非時間'],
+                    [3, timezoneDisplay('🇹🇷', '伊斯坦堡', '土耳其', 3), '土耳其時間'],
+                    [4, timezoneDisplay('🇦🇪', '杜拜', '阿聯酋', 4), '阿聯酋時間'],
+                    [5, timezoneDisplay('🇵🇰', '卡拉奇', '巴基斯坦', 5), '巴基斯坦時間'],
+                    [6, timezoneDisplay('🇧🇩', '達卡', '孟加拉', 6), '孟加拉時間'],
+                    [7, timezoneDisplay('🇹🇭', '曼谷', '泰國', 7), '泰國時間'],
+                    [8, timezoneDisplay('🇨🇳', '上海', '中國', 8), '中國時間'],
+                    [9, timezoneDisplay('🇯🇵', '東京', '日本', 9), '日本時間'],
+                    [10, timezoneDisplay('🇦🇺', '雪梨', '澳洲', 10), '澳洲東部時間'],
+                    [11, timezoneDisplay('🇸🇧', '霍尼亞拉', '所羅門群島', 11), '所羅門時間'],
+                    [12, timezoneDisplay('🇳🇿', '奧克蘭', '紐西蘭', 12), '紐西蘭時間'],
+                    [13, timezoneDisplay('🇹🇴', '努瓜婁發', '東加', 13), '東加時間'],
+                    [14, timezoneDisplay('🇰🇮', '聖誕島', '基里巴斯', 14), '基里巴斯時間']
                 ];
                 zones.forEach(([offset, label, shortLabel]) => {
                     const option = document.createElement('option');
@@ -420,6 +491,137 @@
             }
         }
 
+        async function fetchDdnsSettings() {
+            try {
+                const res = await fetch('/api/ddns-settings');
+                const data = await res.json();
+                document.getElementById('ddns-enabled').checked = Boolean(data.cloudflare_ddns_enabled);
+                document.getElementById('ddns-token').value = data.cloudflare_api_token || '';
+                document.getElementById('ddns-zone-id').value = data.cloudflare_zone_id || '';
+                document.getElementById('ddns-record-name').value = data.cloudflare_record_name || '';
+                document.getElementById('ddns-proxied').checked = Boolean(data.cloudflare_proxied);
+                const status = document.getElementById('ddns-status');
+                if (data.last_ip) status.innerText = `上次同步 ${data.last_ip}${data.last_sync ? ` / ${data.last_sync}` : ''}`;
+            } catch (e) {
+                console.error("Error fetching /api/ddns-settings:", e);
+            }
+        }
+
+        async function saveDdnsSettings() {
+            const status = document.getElementById('ddns-status');
+            const payload = {
+                cloudflare_ddns_enabled: document.getElementById('ddns-enabled').checked,
+                cloudflare_api_token: document.getElementById('ddns-token').value,
+                cloudflare_zone_id: document.getElementById('ddns-zone-id').value,
+                cloudflare_record_name: document.getElementById('ddns-record-name').value,
+                cloudflare_proxied: document.getElementById('ddns-proxied').checked
+            };
+            try {
+                const res = await fetch('/api/ddns-settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                if (!res.ok) throw new Error(await res.text());
+                status.innerText = 'DDNS 設定已保存。啟用後每 10 分鐘檢查一次公網 IP。';
+                return true;
+            } catch (e) {
+                status.innerText = '保存失敗，請檢查 Cloudflare 資訊。';
+                console.error("Error saving /api/ddns-settings:", e);
+                return false;
+            }
+        }
+
+        async function syncDdnsNow() {
+            const status = document.getElementById('ddns-status');
+            const saved = await saveDdnsSettings();
+            if (!saved) return;
+            status.innerText = '正在同步 Cloudflare DNS...';
+            try {
+                const res = await fetch('/api/ddns-sync', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+                status.innerText = `已同步 ${data.record} -> ${data.ip}`;
+            } catch (e) {
+                status.innerText = `同步失敗：${e.message}`;
+                console.error("Error syncing /api/ddns-sync:", e);
+            }
+        }
+
+        async function fetchBandwagonSettings() {
+            try {
+                const res = await fetch('/api/bandwagon-settings');
+                const data = await res.json();
+                document.getElementById('migrate-veid').value = data.bandwagon_veid || '';
+                document.getElementById('migrate-api-key').value = data.bandwagon_api_key || '';
+            } catch (e) {
+                console.error("Error fetching /api/bandwagon-settings:", e);
+            }
+        }
+
+        async function saveBandwagonSettings() {
+            const payload = {
+                bandwagon_veid: document.getElementById('migrate-veid').value,
+                bandwagon_api_key: document.getElementById('migrate-api-key').value
+            };
+            const res = await fetch('/api/bandwagon-settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) throw new Error(await res.text());
+            document.getElementById('bandwagon-veid').value = payload.bandwagon_veid;
+            document.getElementById('bandwagon-api-key').value = payload.bandwagon_api_key;
+        }
+
+        async function loadBandwagonLocations() {
+            const status = document.getElementById('migrate-status');
+            const select = document.getElementById('migrate-location');
+            try {
+                await saveBandwagonSettings();
+                status.innerText = '正在讀取可用機房...';
+                const res = await fetch('/api/bandwagon/locations');
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+                select.innerHTML = '';
+                data.locations.forEach((item) => {
+                    const option = document.createElement('option');
+                    option.value = item.code;
+                    option.textContent = `${item.name} (${item.code})${item.available ? '' : ' / 不可用'}`;
+                    option.disabled = !item.available;
+                    select.appendChild(option);
+                });
+                status.innerText = `已讀取 ${data.locations.length} 個機房。`;
+            } catch (e) {
+                status.innerText = `讀取失敗：${e.message}`;
+                console.error("Error fetching /api/bandwagon/locations:", e);
+            }
+        }
+
+        async function startBandwagonMigration() {
+            const status = document.getElementById('migrate-status');
+            const location = document.getElementById('migrate-location').value;
+            if (!location) {
+                status.innerText = '請先讀取並選擇機房。';
+                return;
+            }
+            if (!confirm(`確定要切換到 ${location} 嗎？機房切換通常會造成短暫中斷。`)) return;
+            try {
+                await saveBandwagonSettings();
+                const res = await fetch('/api/bandwagon/migrate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ location })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+                status.innerText = '切換請求已送出，請到 Bandwagon 後台確認進度。';
+            } catch (e) {
+                status.innerText = `切換失敗：${e.message}`;
+                console.error("Error posting /api/bandwagon/migrate:", e);
+            }
+        }
+
         function logoutPanel() {
             fetch('/logout', { headers: { Authorization: 'Basic logout' } }).finally(() => {
                 window.location.href = '/logout';
@@ -442,11 +644,16 @@
                     body: JSON.stringify(payload)
                 });
                 if (!res.ok) throw new Error(await res.text());
+                const saved = await res.json();
+                const savedTitle = saved.panel_title || payload.panel_title;
+                const savedSubtitle = saved.panel_subtitle || payload.panel_subtitle;
 
                 document.getElementById('settings-password').value = '';
-                document.getElementById('panel-title').innerText = payload.panel_title;
-                document.getElementById('panel-subtitle').innerText = payload.panel_subtitle;
-                document.title = payload.panel_title;
+                document.getElementById('settings-title').value = savedTitle;
+                document.getElementById('settings-subtitle').value = savedSubtitle;
+                document.getElementById('panel-title').innerText = savedTitle;
+                document.getElementById('panel-subtitle').innerText = savedSubtitle;
+                document.title = savedTitle;
                 status.innerText = mode === 'auth' ? '已保存。請重新開啟頁面並用新帳密登入。' : '已保存，面板文字已更新。';
                 closeModal(mode === 'auth' ? 'auth-modal' : 'panel-modal');
             } catch (e) {
@@ -576,7 +783,16 @@
 
         const chartOpts = {
             backgroundColor: 'transparent',
-            tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'cross' },
+                formatter: (params) => {
+                    if (!params || params.length === 0) return '';
+                    const rows = [params[0].axisValueLabel || params[0].axisValue || ''];
+                    params.forEach((item) => rows.push(`${item.marker}${item.seriesName}: ${formatBytes(item.value)}`));
+                    return rows.join('<br>');
+                }
+            },
             legend: { data: ['下載', '上傳'], bottom: 0, textStyle: { color: '#94a3b8' } },
             grid: { left: '2%', right: '4%', bottom: '15%', top: '15%', containLabel: true },
             xAxis: { type: 'category', data: [], axisLabel: { color: '#64748b' } },
@@ -624,18 +840,24 @@
         document.getElementById('open-auth-settings').addEventListener('click', () => openModal('auth-modal'));
         document.getElementById('open-panel-settings').addEventListener('click', () => openModal('panel-modal'));
         document.getElementById('open-telegram-settings').addEventListener('click', () => openModal('telegram-modal'));
+        document.getElementById('open-ddns-settings').addEventListener('click', () => openModal('ddns-modal'));
+        document.getElementById('open-migrate-settings').addEventListener('click', () => openModal('migrate-modal'));
         document.getElementById('open-reset-day').addEventListener('click', () => openModal('reset-day-modal'));
         document.getElementById('auth-settings-save').addEventListener('click', () => saveSettings('auth'));
         document.getElementById('panel-settings-save').addEventListener('click', () => saveSettings('panel'));
         document.getElementById('telegram-save').addEventListener('click', saveTelegramSettings);
         document.getElementById('telegram-test').addEventListener('click', testTelegramPush);
+        document.getElementById('ddns-save').addEventListener('click', saveDdnsSettings);
+        document.getElementById('ddns-sync').addEventListener('click', syncDdnsNow);
+        document.getElementById('migrate-load').addEventListener('click', loadBandwagonLocations);
+        document.getElementById('migrate-start').addEventListener('click', startBandwagonMigration);
         document.getElementById('logout-panel').addEventListener('click', logoutPanel);
         document.getElementById('traffic-reset').addEventListener('click', resetTraffic);
         document.getElementById('reset-day-save').addEventListener('click', saveResetDay);
         document.querySelectorAll('.settings-close').forEach((button) => {
             button.addEventListener('click', () => closeModal(button.dataset.modal));
         });
-        fetchSystem(); fetchSummary(); fetchCharts(); fetchSettings(); fetchTelegramSettings(); fetchLatency();
+        fetchSystem(); fetchSummary(); fetchCharts(); fetchSettings(); fetchTelegramSettings(); fetchDdnsSettings(); fetchBandwagonSettings(); fetchLatency();
         setInterval(fetchRealtime, 2000);
         setInterval(fetchLatency, 10000);
         setInterval(fetchSummary, 5000);

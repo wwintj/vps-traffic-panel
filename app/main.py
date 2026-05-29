@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
-from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE, TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PUSH_HOUR, TELEGRAM_PUSH_MINUTE, TELEGRAM_TIMEZONE_OFFSET, TELEGRAM_TIMEZONE_LABEL, BANDWAGON_VEID, BANDWAGON_API_KEY
+from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE, TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PUSH_HOUR, TELEGRAM_PUSH_MINUTE, TELEGRAM_TIMEZONE_OFFSET, TELEGRAM_TIMEZONE_LABEL, BANDWAGON_VEID, BANDWAGON_API_KEY, CLOUDFLARE_DDNS_ENABLED, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID, CLOUDFLARE_RECORD_NAME, CLOUDFLARE_PROXIED
 from app.database import init_db, get_db, get_meta_value, set_meta_value
 from app.collector import collector_instance
 
@@ -39,11 +39,13 @@ async def lifespan(app: FastAPI):
     init_db()
     collector_task = asyncio.create_task(collector_instance.start())
     telegram_task = asyncio.create_task(telegram_daily_notifier())
+    ddns_task = asyncio.create_task(ddns_background_updater())
     yield
     collector_instance.running = False
     collector_task.cancel()
     telegram_task.cancel()
-    for task in (collector_task, telegram_task):
+    ddns_task.cancel()
+    for task in (collector_task, telegram_task, ddns_task):
         try:
             await task
         except asyncio.CancelledError:
@@ -137,6 +139,32 @@ def is_safe_auth_value(value):
     allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@_.!%-")
     return bool(value) and all(ch in allowed for ch in value)
 
+def to_traditional_text(value):
+    phrase_map = {
+        "服务器": "伺服器",
+        "服务": "服務",
+        "监控": "監控",
+        "流量": "流量",
+        "面板": "面板",
+        "台湾": "臺灣",
+        "后台": "後台",
+    }
+    char_map = str.maketrans({
+        "监": "監", "控": "控", "务": "務", "器": "器", "汉": "漢", "简": "簡", "体": "體",
+        "龙": "龍", "马": "馬", "门": "門", "云": "雲", "电": "電", "脑": "腦", "网": "網",
+        "页": "頁", "题": "題", "标": "標", "副": "副", "时": "時", "间": "間", "运": "運",
+        "行": "行", "总": "總", "传": "傳", "载": "載", "数": "數", "据": "據", "统": "統",
+        "计": "計", "节": "節", "点": "點", "后": "後", "台": "臺", "机": "機", "场": "場",
+        "区": "區", "设": "設", "置": "置", "开": "開", "关": "關", "启": "啟", "动": "動",
+        "态": "態", "显": "顯", "示": "示", "维": "維", "护": "護", "者": "者", "密": "密",
+        "码": "碼", "用": "用", "户": "戶", "名": "名", "登": "登", "录": "錄", "链": "鏈",
+        "接": "接", "实": "實", "测": "測", "试": "試", "线": "線", "宽": "寬", "带": "帶",
+    })
+    text = str(value or "")
+    for source, target in phrase_map.items():
+        text = text.replace(source, target)
+    return text.translate(char_map)
+
 def classify_ip_info(info):
     if not info or info.get("status") != "success":
         return "未知"
@@ -194,6 +222,17 @@ def format_unix_time(value):
         return (datetime.utcfromtimestamp(timestamp) + timedelta(hours=TELEGRAM_TIMEZONE_OFFSET)).strftime("%Y-%m-%d %H:%M")
     except (TypeError, ValueError, OSError):
         return str(value or "")
+
+def request_json(url, method="GET", payload=None, headers=None, timeout=10):
+    data = None
+    request_headers = headers or {}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        request_headers = {"Content-Type": "application/json", **request_headers}
+    req = urllib.request.Request(url, data=data, method=method, headers=request_headers)
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        raw = response.read().decode("utf-8")
+    return json.loads(raw) if raw else {}
 
 def get_traffic_summary():
     now = datetime.now()
@@ -267,6 +306,111 @@ def fetch_bandwagon_info():
         "node": data.get("node_location") or data.get("node_alias") or "",
     }
 
+def bandwagon_request(action, params=None):
+    if not BANDWAGON_VEID or not BANDWAGON_API_KEY:
+        raise ValueError("Bandwagon VEID / API Key is empty")
+    query = {"veid": BANDWAGON_VEID, "api_key": BANDWAGON_API_KEY}
+    if params:
+        query.update(params)
+    url = f"https://api.64clouds.com/v1/{action}?{urllib.parse.urlencode(query)}"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; VPS-Traffic-Panel/1.0)",
+            "Accept": "application/json,text/plain,*/*",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as response:
+        raw = response.read().decode("utf-8")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"raw": raw}
+
+def normalize_bandwagon_locations(data):
+    source = data
+    for key in ("locations", "data", "available_locations"):
+        if isinstance(source, dict) and key in source:
+            source = source[key]
+            break
+
+    locations = []
+    if isinstance(source, dict):
+        iterable = source.items()
+    elif isinstance(source, list):
+        iterable = enumerate(source)
+    else:
+        iterable = []
+
+    for key, item in iterable:
+        if isinstance(item, dict):
+            code = str(item.get("id") or item.get("location") or item.get("code") or key)
+            name = str(item.get("name") or item.get("label") or item.get("description") or code)
+            available = item.get("available", item.get("enabled", True))
+        else:
+            code = str(item)
+            name = str(item)
+            available = True
+        locations.append({"code": code, "name": name, "available": bool(available)})
+    return locations
+
+def cloudflare_headers():
+    return {
+        "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+        "Accept": "application/json",
+    }
+
+def sync_cloudflare_ddns():
+    if not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ZONE_ID or not CLOUDFLARE_RECORD_NAME:
+        raise ValueError("Cloudflare Token、Zone ID 或域名未填完整")
+
+    public_ip, _ = get_cached_public_ip_info()
+    if not public_ip or public_ip == "Unknown":
+        raise ValueError("無法取得目前 VPS 公網 IP")
+
+    base_url = f"https://api.cloudflare.com/client/v4/zones/{urllib.parse.quote(CLOUDFLARE_ZONE_ID)}/dns_records"
+    query = urllib.parse.urlencode({"type": "A", "name": CLOUDFLARE_RECORD_NAME})
+    records = request_json(f"{base_url}?{query}", headers=cloudflare_headers())
+    if not records.get("success"):
+        raise ValueError(records.get("errors") or "Cloudflare 查詢 DNS 記錄失敗")
+
+    body = {
+        "type": "A",
+        "name": CLOUDFLARE_RECORD_NAME,
+        "content": public_ip,
+        "ttl": 1,
+        "proxied": CLOUDFLARE_PROXIED == "1",
+    }
+    existing = records.get("result") or []
+    if existing:
+        record_id = existing[0]["id"]
+        result = request_json(f"{base_url}/{record_id}", method="PATCH", payload=body, headers=cloudflare_headers())
+        action = "updated"
+    else:
+        result = request_json(base_url, method="POST", payload=body, headers=cloudflare_headers())
+        action = "created"
+
+    if not result.get("success"):
+        raise ValueError(result.get("errors") or "Cloudflare 更新 DNS 記錄失敗")
+    set_meta_value("cloudflare_ddns_last_ip", public_ip)
+    set_meta_value("cloudflare_ddns_last_sync", datetime.now().isoformat())
+    return {"ok": True, "action": action, "ip": public_ip, "record": CLOUDFLARE_RECORD_NAME}
+
+async def ddns_background_updater():
+    while True:
+        try:
+            await asyncio.sleep(600)
+            if CLOUDFLARE_DDNS_ENABLED != "1":
+                continue
+            public_ip, _ = get_cached_public_ip_info()
+            if public_ip == "Unknown" or public_ip == get_meta_value("cloudflare_ddns_last_ip", ""):
+                continue
+            await asyncio.to_thread(sync_cloudflare_ddns)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await asyncio.sleep(600)
+
 def build_telegram_message():
     summary = get_traffic_summary()
     ip, ip_info = get_cached_public_ip_info()
@@ -276,33 +420,41 @@ def build_telegram_message():
         f"<b>{escape_html(PANEL_TITLE)}</b>",
         f"<code>{now} {escape_html(TELEGRAM_TIMEZONE_LABEL)}</code>",
         "",
-        "<b>服務器信息</b>",
-        f"IP：<code>{escape_html(ip)}</code>",
-        f"位置：{escape_html(location)}",
-        f"類型：<b>{escape_html(classify_ip_info(ip_info))}</b>",
+        "<b>本期重點</b>",
+        f"下載        <b>{format_bytes(summary['month_rx'])}</b>",
+        f"上傳        <b>{format_bytes(summary['month_tx'])}</b>",
+        f"重置日      每月 {summary['month_reset_day']} 日",
         "",
-        "<b>本機流量統計</b>",
-        f"今日：↓ {format_bytes(summary['today_rx'])}  /  ↑ {format_bytes(summary['today_tx'])}",
-        f"本期：↓ <b>{format_bytes(summary['month_rx'])}</b>  /  ↑ <b>{format_bytes(summary['month_tx'])}</b>",
-        f"重置：每月 {summary['month_reset_day']} 日",
+        "<b>今日流量</b>",
+        f"下載        {format_bytes(summary['today_rx'])}",
+        f"上傳        {format_bytes(summary['today_tx'])}",
     ]
 
     bw = fetch_bandwagon_info()
     if bw:
         lines.append("")
-        lines.append("<b>Bandwagon 官方流量</b>")
+        lines.append("<b>Bandwagon 官方配額</b>")
         if bw.get("error"):
             lines.append(f"狀態：{escape_html(bw['error'])}")
         else:
             percent = (bw["used"] / bw["limit"] * 100) if bw.get("limit") else 0
             remaining = max(0, int(bw.get("limit") or 0) - int(bw.get("used") or 0))
-            lines.append(f"用量：<b>{format_bytes(bw['used'])}</b> / {format_bytes(bw['limit'])}")
-            lines.append(f"進度：<b>{percent:.1f}%</b>")
-            lines.append(f"剩餘：{format_bytes(remaining)}")
+            lines.append(f"已用        <b>{format_bytes(bw['used'])}</b>")
+            lines.append(f"配額        {format_bytes(bw['limit'])}")
+            lines.append(f"剩餘        <b>{format_bytes(remaining)}</b>")
+            lines.append(f"使用率      <b>{percent:.1f}%</b>")
             if bw.get("reset"):
-                lines.append(f"重置：{escape_html(format_unix_time(bw['reset']))} {escape_html(TELEGRAM_TIMEZONE_LABEL)}")
+                lines.append(f"重置        {escape_html(format_unix_time(bw['reset']))} {escape_html(TELEGRAM_TIMEZONE_LABEL)}")
             if bw.get("node"):
-                lines.append(f"節點：{escape_html(bw['node'])}")
+                lines.append(f"節點        {escape_html(bw['node'])}")
+
+    lines.extend([
+        "",
+        "<b>服務器信息</b>",
+        f"IP          <code>{escape_html(ip)}</code>",
+        f"位置        {escape_html(location)}",
+        f"類型        <b>{escape_html(classify_ip_info(ip_info))}</b>",
+    ])
     return "\n".join(lines)
 
 def send_telegram_message(text):
@@ -367,8 +519,8 @@ async def api_update_settings(payload: dict, username: str = Depends(verify_auth
 
     new_username = str(payload.get("auth_username", "")).strip()
     new_password = str(payload.get("auth_password", "")).strip()
-    new_title = str(payload.get("panel_title", "")).strip()
-    new_subtitle = str(payload.get("panel_subtitle", "")).strip()
+    new_title = to_traditional_text(payload.get("panel_title", "")).strip()
+    new_subtitle = to_traditional_text(payload.get("panel_subtitle", "")).strip()
 
     if not is_safe_auth_value(new_username):
         raise HTTPException(status_code=400, detail="Invalid username")
@@ -392,7 +544,7 @@ async def api_update_settings(payload: dict, username: str = Depends(verify_auth
     PANEL_TITLE = new_title
     PANEL_SUBTITLE = new_subtitle
 
-    return {"ok": True}
+    return {"ok": True, "panel_title": PANEL_TITLE, "panel_subtitle": PANEL_SUBTITLE}
 
 @app.get("/api/telegram-settings")
 async def api_get_telegram_settings(username: str = Depends(verify_auth)):
@@ -454,6 +606,89 @@ async def api_telegram_test(username: str = Depends(verify_auth)):
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}
+
+@app.get("/api/ddns-settings")
+async def api_get_ddns_settings(username: str = Depends(verify_auth)):
+    return {
+        "cloudflare_ddns_enabled": CLOUDFLARE_DDNS_ENABLED == "1",
+        "cloudflare_zone_id": CLOUDFLARE_ZONE_ID,
+        "cloudflare_record_name": CLOUDFLARE_RECORD_NAME,
+        "cloudflare_api_token": CLOUDFLARE_API_TOKEN,
+        "cloudflare_proxied": CLOUDFLARE_PROXIED == "1",
+        "last_ip": get_meta_value("cloudflare_ddns_last_ip", ""),
+        "last_sync": format_meta_time(get_meta_value("cloudflare_ddns_last_sync", "")),
+    }
+
+@app.post("/api/ddns-settings")
+async def api_update_ddns_settings(payload: dict, username: str = Depends(verify_auth)):
+    global CLOUDFLARE_DDNS_ENABLED, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID, CLOUDFLARE_RECORD_NAME, CLOUDFLARE_PROXIED
+
+    CLOUDFLARE_DDNS_ENABLED = "1" if payload.get("cloudflare_ddns_enabled") else "0"
+    CLOUDFLARE_API_TOKEN = str(payload.get("cloudflare_api_token", "")).strip()
+    CLOUDFLARE_ZONE_ID = str(payload.get("cloudflare_zone_id", "")).strip()
+    CLOUDFLARE_RECORD_NAME = str(payload.get("cloudflare_record_name", "")).strip()
+    CLOUDFLARE_PROXIED = "1" if payload.get("cloudflare_proxied") else "0"
+    update_env_values({
+        "CLOUDFLARE_DDNS_ENABLED": CLOUDFLARE_DDNS_ENABLED,
+        "CLOUDFLARE_API_TOKEN": CLOUDFLARE_API_TOKEN,
+        "CLOUDFLARE_ZONE_ID": CLOUDFLARE_ZONE_ID,
+        "CLOUDFLARE_RECORD_NAME": CLOUDFLARE_RECORD_NAME,
+        "CLOUDFLARE_PROXIED": CLOUDFLARE_PROXIED,
+    })
+    return {"ok": True}
+
+@app.post("/api/ddns-sync")
+async def api_ddns_sync(username: str = Depends(verify_auth)):
+    try:
+        return await asyncio.to_thread(sync_cloudflare_ddns)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+@app.get("/api/bandwagon-settings")
+async def api_get_bandwagon_settings(username: str = Depends(verify_auth)):
+    return {"bandwagon_veid": BANDWAGON_VEID, "bandwagon_api_key": BANDWAGON_API_KEY}
+
+@app.post("/api/bandwagon-settings")
+async def api_update_bandwagon_settings(payload: dict, username: str = Depends(verify_auth)):
+    global BANDWAGON_VEID, BANDWAGON_API_KEY
+    BANDWAGON_VEID = str(payload.get("bandwagon_veid", "")).strip()
+    BANDWAGON_API_KEY = str(payload.get("bandwagon_api_key", "")).strip()
+    update_env_values({"BANDWAGON_VEID": BANDWAGON_VEID, "BANDWAGON_API_KEY": BANDWAGON_API_KEY})
+    return {"ok": True}
+
+@app.get("/api/bandwagon/locations")
+async def api_bandwagon_locations(username: str = Depends(verify_auth)):
+    errors = []
+    for action in ("migrate/getLocations", "getAvailableLocations"):
+        try:
+            data = await asyncio.to_thread(bandwagon_request, action)
+            if data.get("error"):
+                errors.append(str(data.get("message") or data.get("error")))
+                continue
+            locations = normalize_bandwagon_locations(data)
+            if locations:
+                return {"ok": True, "locations": locations, "raw": data}
+        except Exception as exc:
+            errors.append(str(exc))
+    raise HTTPException(status_code=400, detail="無法讀取可切換機房：" + "；".join(errors))
+
+@app.post("/api/bandwagon/migrate")
+async def api_bandwagon_migrate(payload: dict, username: str = Depends(verify_auth)):
+    location = str(payload.get("location", "")).strip()
+    if not location:
+        raise HTTPException(status_code=400, detail="請先選擇機房")
+
+    errors = []
+    for action in ("migrate/start", "migrateToLocation"):
+        try:
+            data = await asyncio.to_thread(bandwagon_request, action, {"location": location})
+            if data.get("error"):
+                errors.append(str(data.get("message") or data.get("error")))
+                continue
+            return {"ok": True, "result": data}
+        except Exception as exc:
+            errors.append(str(exc))
+    raise HTTPException(status_code=400, detail="切換機房請求失敗：" + "；".join(errors))
 
 @app.post("/api/traffic/reset")
 async def api_reset_traffic(username: str = Depends(verify_auth)):

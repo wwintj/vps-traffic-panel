@@ -9,6 +9,7 @@
 推薦使用 `git clone` 部署，後續升級會更方便。
 
 ```bash
+apt-get update && apt-get install -y git curl
 cd /opt
 git clone https://github.com/wwintj/vps-traffic-panel.git vps-traffic-panel-src
 cd /opt/vps-traffic-panel-src
@@ -77,6 +78,8 @@ journalctl -u vps-traffic-panel -f
 - 修改面板標題與副標題
 - 退出面板與 Telegram 流量推送設定，支援自訂時區、推送小時與分鐘
 - 支援 Bandwagon VEID / API Key 查詢官方流量配額
+- 支援 Cloudflare DDNS，VPS 公網 IP 變動時自動同步域名 A 記錄
+- 支援 Bandwagon API 讀取可用機房並發起切換請求
 - 自動檢測網卡離線狀態
 - Basic Auth 登入保護
 
@@ -97,6 +100,13 @@ AUTH_USERNAME=admin
 AUTH_PASSWORD=your_password
 PANEL_TITLE="VPS 監控流量面板"
 PANEL_SUBTITLE="Tim哥在三更半夜改好的"
+BANDWAGON_VEID=
+BANDWAGON_API_KEY=
+CLOUDFLARE_DDNS_ENABLED=0
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ZONE_ID=
+CLOUDFLARE_RECORD_NAME=
+CLOUDFLARE_PROXIED=0
 INTERFACE=
 MONTH_RESET_DAY=1
 SSL_ENABLED=0
