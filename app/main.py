@@ -58,6 +58,10 @@ ENV_PATH = os.path.join(BASE_DIR, ".env")
 SYSTEM_INFO_CACHE = {"public_ip": None, "ip_info": None, "updated_at": 0}
 SYSTEM_INFO_CACHE_TTL = 600
 
+async def run_blocking(func, *args):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: func(*args))
+
 def get_os_pretty_name():
     try:
         with open('/etc/os-release', 'r') as f:
@@ -541,7 +545,7 @@ async def ddns_background_updater():
             public_ip, _ = get_cached_public_ip_info()
             if public_ip == "Unknown" or public_ip == get_meta_value("cloudflare_ddns_last_ip", ""):
                 continue
-            await asyncio.to_thread(sync_cloudflare_ddns)
+            await run_blocking(sync_cloudflare_ddns)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -617,7 +621,7 @@ async def telegram_daily_notifier():
             today_key = now.strftime("%Y-%m-%d")
             if get_meta_value("telegram_last_daily") == today_key:
                 continue
-            await asyncio.to_thread(send_telegram_message, build_telegram_message())
+            await run_blocking(send_telegram_message, build_telegram_message())
             set_meta_value("telegram_last_daily", today_key)
         except asyncio.CancelledError:
             raise
@@ -738,7 +742,7 @@ async def api_update_telegram_settings(payload: dict, username: str = Depends(ve
 @app.post("/api/telegram-test")
 async def api_telegram_test(username: str = Depends(verify_auth)):
     try:
-        await asyncio.to_thread(send_telegram_message, build_telegram_message())
+        await run_blocking(send_telegram_message, build_telegram_message())
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}
@@ -776,7 +780,7 @@ async def api_update_ddns_settings(payload: dict, username: str = Depends(verify
 @app.post("/api/ddns-sync")
 async def api_ddns_sync(username: str = Depends(verify_auth)):
     try:
-        return await asyncio.to_thread(sync_cloudflare_ddns)
+        return await run_blocking(sync_cloudflare_ddns)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -798,13 +802,13 @@ async def api_bandwagon_locations(username: str = Depends(verify_auth)):
     current_location = ""
     for action in ("migrate/getLocations", "getAvailableLocations"):
         try:
-            data = await asyncio.to_thread(bandwagon_request, action)
+            data = await run_blocking(bandwagon_request, action)
             if data.get("error"):
                 errors.append(str(data.get("message") or data.get("error")))
                 continue
             locations = normalize_bandwagon_locations(data)
             if locations:
-                service_info = await asyncio.to_thread(fetch_bandwagon_info)
+                service_info = await run_blocking(fetch_bandwagon_info)
                 if service_info and not service_info.get("error"):
                     current_location = match_current_location_label(service_info.get("node"), locations)
                 return {"ok": True, "locations": locations, "current_location": current_location, "raw": data}
@@ -821,7 +825,7 @@ async def api_bandwagon_migrate(payload: dict, username: str = Depends(verify_au
     errors = []
     for action in ("migrate/start", "migrateToLocation"):
         try:
-            data = await asyncio.to_thread(bandwagon_request, action, {"location": location})
+            data = await run_blocking(bandwagon_request, action, {"location": location})
             if data.get("error"):
                 errors.append(str(data.get("message") or data.get("error")))
                 continue
