@@ -5,6 +5,7 @@ import platform
 import psutil
 import json
 import time
+import html
 import urllib.request
 import urllib.parse
 from datetime import datetime, timedelta
@@ -15,7 +16,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
-from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE, TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PUSH_HOUR, BANDWAGON_VEID, BANDWAGON_API_KEY
+from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE, TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PUSH_HOUR, TELEGRAM_PUSH_MINUTE, TELEGRAM_TIMEZONE_OFFSET, TELEGRAM_TIMEZONE_LABEL, BANDWAGON_VEID, BANDWAGON_API_KEY
 from app.database import init_db, get_db, get_meta_value, set_meta_value
 from app.collector import collector_instance
 
@@ -182,6 +183,18 @@ def format_bytes(value):
         unit_index += 1
     return f"{size:.2f} {units[unit_index]}"
 
+def escape_html(value):
+    return html.escape(str(value), quote=False)
+
+def format_unix_time(value):
+    try:
+        timestamp = int(value)
+        if timestamp <= 0:
+            return ""
+        return (datetime.utcfromtimestamp(timestamp) + timedelta(hours=TELEGRAM_TIMEZONE_OFFSET)).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError, OSError):
+        return str(value or "")
+
 def get_traffic_summary():
     now = datetime.now()
     conn = get_db()
@@ -258,51 +271,51 @@ def build_telegram_message():
     summary = get_traffic_summary()
     ip, ip_info = get_cached_public_ip_info()
     location = " / ".join(filter(None, [ip_info.get('country'), ip_info.get('regionName'), ip_info.get('city')])) or "Unknown"
-    now = china_now().strftime("%Y-%m-%d %H:%M")
+    now = configured_now().strftime("%Y-%m-%d %H:%M")
     lines = [
-        f"{PANEL_TITLE}",
-        f"更新時間: {now} 中國時間",
+        f"<b>{escape_html(PANEL_TITLE)}</b>",
+        f"<code>{now} {escape_html(TELEGRAM_TIMEZONE_LABEL)}</code>",
         "",
-        "服務器",
-        f"IP      : {ip}",
-        f"位置    : {location}",
-        f"類型    : {classify_ip_info(ip_info)}",
+        "<b>服務器信息</b>",
+        f"IP：<code>{escape_html(ip)}</code>",
+        f"位置：{escape_html(location)}",
+        f"類型：<b>{escape_html(classify_ip_info(ip_info))}</b>",
         "",
-        "本機統計",
-        f"今日下載: {format_bytes(summary['today_rx'])}",
-        f"今日上傳: {format_bytes(summary['today_tx'])}",
-        f"本期下載: {format_bytes(summary['month_rx'])}",
-        f"本期上傳: {format_bytes(summary['month_tx'])}",
-        f"重置日  : 每月 {summary['month_reset_day']} 日",
+        "<b>本機流量統計</b>",
+        f"今日：↓ {format_bytes(summary['today_rx'])}  /  ↑ {format_bytes(summary['today_tx'])}",
+        f"本期：↓ <b>{format_bytes(summary['month_rx'])}</b>  /  ↑ <b>{format_bytes(summary['month_tx'])}</b>",
+        f"重置：每月 {summary['month_reset_day']} 日",
     ]
 
     bw = fetch_bandwagon_info()
     if bw:
         lines.append("")
-        lines.append("Bandwagon 官方流量")
+        lines.append("<b>Bandwagon 官方流量</b>")
         if bw.get("error"):
-            lines.append(f"狀態: {bw['error']}")
+            lines.append(f"狀態：{escape_html(bw['error'])}")
         else:
             percent = (bw["used"] / bw["limit"] * 100) if bw.get("limit") else 0
-            lines.append(f"已用: {format_bytes(bw['used'])} ({percent:.1f}%)")
-            lines.append(f"配額: {format_bytes(bw['limit'])}")
+            remaining = max(0, int(bw.get("limit") or 0) - int(bw.get("used") or 0))
+            lines.append(f"用量：<b>{format_bytes(bw['used'])}</b> / {format_bytes(bw['limit'])}")
+            lines.append(f"進度：<b>{percent:.1f}%</b>")
+            lines.append(f"剩餘：{format_bytes(remaining)}")
             if bw.get("reset"):
-                lines.append(f"下次重置: {bw['reset']}")
+                lines.append(f"重置：{escape_html(format_unix_time(bw['reset']))} {escape_html(TELEGRAM_TIMEZONE_LABEL)}")
             if bw.get("node"):
-                lines.append(f"節點: {bw['node']}")
+                lines.append(f"節點：{escape_html(bw['node'])}")
     return "\n".join(lines)
 
 def send_telegram_message(text):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         raise ValueError("Telegram token or chat id is empty")
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = urllib.parse.urlencode({"chat_id": TELEGRAM_CHAT_ID, "text": text}).encode("utf-8")
+    payload = urllib.parse.urlencode({"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"}).encode("utf-8")
     req = urllib.request.Request(url, data=payload, method="POST")
     with urllib.request.urlopen(req, timeout=8) as response:
         return json.loads(response.read().decode("utf-8"))
 
-def china_now():
-    return datetime.utcnow() + timedelta(hours=8)
+def configured_now():
+    return datetime.utcnow() + timedelta(hours=TELEGRAM_TIMEZONE_OFFSET)
 
 async def telegram_daily_notifier():
     while True:
@@ -310,8 +323,8 @@ async def telegram_daily_notifier():
             await asyncio.sleep(60)
             if TELEGRAM_ENABLED != "1" or not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
                 continue
-            now = china_now()
-            if now.hour != TELEGRAM_PUSH_HOUR:
+            now = configured_now()
+            if now.hour != TELEGRAM_PUSH_HOUR or now.minute != TELEGRAM_PUSH_MINUTE:
                 continue
             today_key = now.strftime("%Y-%m-%d")
             if get_meta_value("telegram_last_daily") == today_key:
@@ -388,13 +401,16 @@ async def api_get_telegram_settings(username: str = Depends(verify_auth)):
         "telegram_chat_id": TELEGRAM_CHAT_ID,
         "telegram_bot_token": TELEGRAM_BOT_TOKEN,
         "telegram_push_hour": TELEGRAM_PUSH_HOUR,
+        "telegram_push_minute": TELEGRAM_PUSH_MINUTE,
+        "telegram_timezone_offset": TELEGRAM_TIMEZONE_OFFSET,
+        "telegram_timezone_label": TELEGRAM_TIMEZONE_LABEL,
         "bandwagon_veid": BANDWAGON_VEID,
         "bandwagon_api_key": BANDWAGON_API_KEY,
     }
 
 @app.post("/api/telegram-settings")
 async def api_update_telegram_settings(payload: dict, username: str = Depends(verify_auth)):
-    global TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PUSH_HOUR, BANDWAGON_VEID, BANDWAGON_API_KEY
+    global TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PUSH_HOUR, TELEGRAM_PUSH_MINUTE, TELEGRAM_TIMEZONE_OFFSET, TELEGRAM_TIMEZONE_LABEL, BANDWAGON_VEID, BANDWAGON_API_KEY
 
     TELEGRAM_ENABLED = "1" if payload.get("telegram_enabled") else "0"
     TELEGRAM_BOT_TOKEN = str(payload.get("telegram_bot_token", "")).strip()
@@ -404,6 +420,17 @@ async def api_update_telegram_settings(payload: dict, username: str = Depends(ve
     except (TypeError, ValueError):
         TELEGRAM_PUSH_HOUR = 20
     TELEGRAM_PUSH_HOUR = max(0, min(23, TELEGRAM_PUSH_HOUR))
+    try:
+        TELEGRAM_PUSH_MINUTE = int(payload.get("telegram_push_minute", 0))
+    except (TypeError, ValueError):
+        TELEGRAM_PUSH_MINUTE = 0
+    TELEGRAM_PUSH_MINUTE = max(0, min(59, TELEGRAM_PUSH_MINUTE))
+    try:
+        TELEGRAM_TIMEZONE_OFFSET = int(payload.get("telegram_timezone_offset", 8))
+    except (TypeError, ValueError):
+        TELEGRAM_TIMEZONE_OFFSET = 8
+    TELEGRAM_TIMEZONE_OFFSET = max(-12, min(14, TELEGRAM_TIMEZONE_OFFSET))
+    TELEGRAM_TIMEZONE_LABEL = str(payload.get("telegram_timezone_label", "中國時間")).strip() or "自訂時區"
     BANDWAGON_VEID = str(payload.get("bandwagon_veid", "")).strip()
     BANDWAGON_API_KEY = str(payload.get("bandwagon_api_key", "")).strip()
 
@@ -412,6 +439,9 @@ async def api_update_telegram_settings(payload: dict, username: str = Depends(ve
         "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
         "TELEGRAM_CHAT_ID": TELEGRAM_CHAT_ID,
         "TELEGRAM_PUSH_HOUR": TELEGRAM_PUSH_HOUR,
+        "TELEGRAM_PUSH_MINUTE": TELEGRAM_PUSH_MINUTE,
+        "TELEGRAM_TIMEZONE_OFFSET": TELEGRAM_TIMEZONE_OFFSET,
+        "TELEGRAM_TIMEZONE_LABEL": TELEGRAM_TIMEZONE_LABEL,
         "BANDWAGON_VEID": BANDWAGON_VEID,
         "BANDWAGON_API_KEY": BANDWAGON_API_KEY,
     })

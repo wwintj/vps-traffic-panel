@@ -189,7 +189,7 @@
             <div class="flex items-start justify-between gap-4 mb-5">
                 <div>
                     <h2 class="text-lg font-bold text-slate-100">Telegram 推送設定</h2>
-                    <p class="text-xs text-slate-500 mt-1" id="telegram-status">每天中國時間 20:00 推送一次流量摘要</p>
+                    <p class="text-xs text-slate-500 mt-1" id="telegram-status">每天按所選時區推送一次流量摘要</p>
                 </div>
                 <button class="settings-close text-slate-400 hover:text-white text-xl leading-none" data-modal="telegram-modal">&times;</button>
             </div>
@@ -204,9 +204,17 @@
                 <label class="block text-xs text-slate-400 uppercase">用戶 ID / Chat ID
                     <input id="telegram-chat-id" class="form-input" autocomplete="off">
                 </label>
-                <label class="block text-xs text-slate-400 uppercase">推送時間（中國時間）
-                    <select id="telegram-push-hour" class="form-input"></select>
-                </label>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <label class="block text-xs text-slate-400 uppercase">推送時區
+                        <select id="telegram-timezone" class="form-input"></select>
+                    </label>
+                    <label class="block text-xs text-slate-400 uppercase">小時
+                        <select id="telegram-push-hour" class="form-input"></select>
+                    </label>
+                    <label class="block text-xs text-slate-400 uppercase">分鐘
+                        <select id="telegram-push-minute" class="form-input"></select>
+                    </label>
+                </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <label class="block text-xs text-slate-400 uppercase">Bandwagon VEID
                         <input id="bandwagon-veid" class="form-input" autocomplete="off">
@@ -278,16 +286,50 @@
             }
         }
 
-        function buildTelegramHourOptions() {
-            const select = document.getElementById('telegram-push-hour');
-            if (select.options.length > 0) return;
-            for (let hour = 0; hour <= 23; hour++) {
-                const option = document.createElement('option');
-                option.value = String(hour);
-                option.textContent = `中國時間 ${String(hour).padStart(2, '0')}:00`;
-                select.appendChild(option);
+        function buildTelegramScheduleOptions() {
+            const timezone = document.getElementById('telegram-timezone');
+            if (timezone.options.length === 0) {
+                const zones = [
+                    [-12, 'UTC-12'], [-11, 'UTC-11'], [-10, 'UTC-10'], [-9, 'UTC-9'], [-8, 'UTC-8'], [-7, 'UTC-7'], [-6, 'UTC-6'],
+                    [-5, 'UTC-5'], [-4, 'UTC-4'], [-3, 'UTC-3'], [-2, 'UTC-2'], [-1, 'UTC-1'], [0, 'UTC+0'],
+                    [1, 'UTC+1'], [2, 'UTC+2'], [3, 'UTC+3'], [4, 'UTC+4'], [5, 'UTC+5'], [6, 'UTC+6'], [7, 'UTC+7'],
+                    [8, '中國時間 / UTC+8'], [9, 'UTC+9'], [10, 'UTC+10'], [11, 'UTC+11'], [12, 'UTC+12'], [13, 'UTC+13'], [14, 'UTC+14']
+                ];
+                zones.forEach(([offset, label]) => {
+                    const option = document.createElement('option');
+                    option.value = String(offset);
+                    option.textContent = label;
+                    option.dataset.label = offset === 8 ? '中國時間' : label;
+                    timezone.appendChild(option);
+                });
+                timezone.value = '8';
             }
-            select.value = '20';
+
+            const hourSelect = document.getElementById('telegram-push-hour');
+            if (hourSelect.options.length === 0) {
+                for (let hour = 0; hour <= 23; hour++) {
+                    const option = document.createElement('option');
+                    option.value = String(hour);
+                    option.textContent = String(hour).padStart(2, '0');
+                    hourSelect.appendChild(option);
+                }
+                hourSelect.value = '20';
+            }
+
+            const minuteSelect = document.getElementById('telegram-push-minute');
+            if (minuteSelect.options.length > 0) return;
+            for (let minute = 0; minute <= 59; minute++) {
+                const option = document.createElement('option');
+                option.value = String(minute);
+                option.textContent = String(minute).padStart(2, '0');
+                minuteSelect.appendChild(option);
+            }
+            minuteSelect.value = '0';
+        }
+
+        function selectedTelegramTimezoneLabel() {
+            const select = document.getElementById('telegram-timezone');
+            return select.options[select.selectedIndex]?.dataset.label || '自訂時區';
         }
 
         async function fetchTelegramSettings() {
@@ -298,6 +340,11 @@
                 document.getElementById('telegram-token').value = data.telegram_bot_token || '';
                 document.getElementById('telegram-chat-id').value = data.telegram_chat_id || '';
                 document.getElementById('telegram-push-hour').value = String(data.telegram_push_hour ?? 20);
+                document.getElementById('telegram-push-minute').value = String(data.telegram_push_minute ?? 0);
+                document.getElementById('telegram-timezone').value = String(data.telegram_timezone_offset ?? 8);
+                const timezone = document.getElementById('telegram-timezone');
+                const selectedOption = timezone.options[timezone.selectedIndex];
+                if (selectedOption && data.telegram_timezone_label) selectedOption.dataset.label = data.telegram_timezone_label;
                 document.getElementById('bandwagon-veid').value = data.bandwagon_veid || '';
                 document.getElementById('bandwagon-api-key').value = data.bandwagon_api_key || '';
             } catch (e) {
@@ -312,6 +359,9 @@
                 telegram_bot_token: document.getElementById('telegram-token').value,
                 telegram_chat_id: document.getElementById('telegram-chat-id').value,
                 telegram_push_hour: Number(document.getElementById('telegram-push-hour').value),
+                telegram_push_minute: Number(document.getElementById('telegram-push-minute').value),
+                telegram_timezone_offset: Number(document.getElementById('telegram-timezone').value),
+                telegram_timezone_label: selectedTelegramTimezoneLabel(),
                 bandwagon_veid: document.getElementById('bandwagon-veid').value,
                 bandwagon_api_key: document.getElementById('bandwagon-api-key').value
             };
@@ -323,7 +373,8 @@
                 });
                 if (!res.ok) throw new Error(await res.text());
                 const hour = String(payload.telegram_push_hour).padStart(2, '0');
-                status.innerText = `已保存。啟用後每天中國時間 ${hour}:00 推送流量摘要。`;
+                const minute = String(payload.telegram_push_minute).padStart(2, '0');
+                status.innerText = `已保存。啟用後每天 ${payload.telegram_timezone_label} ${hour}:${minute} 推送流量摘要。`;
                 return true;
             } catch (e) {
                 status.innerText = '保存失敗，請檢查 Token、Chat ID 或 Bandwagon 資訊。';
@@ -546,7 +597,7 @@
         }
 
         buildResetDayOptions();
-        buildTelegramHourOptions();
+        buildTelegramScheduleOptions();
         document.getElementById('open-auth-settings').addEventListener('click', () => openModal('auth-modal'));
         document.getElementById('open-panel-settings').addEventListener('click', () => openModal('panel-modal'));
         document.getElementById('open-telegram-settings').addEventListener('click', () => openModal('telegram-modal'));
