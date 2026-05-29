@@ -327,6 +327,26 @@ def bandwagon_request(action, params=None):
     except json.JSONDecodeError:
         return {"raw": raw}
 
+BANDWAGON_LOCATION_FALLBACKS = {
+    "CABC_1": "CA: British Columbia, Vancouver (AMD-F+NVMe) [CABC_1]",
+    "CABC_6": "CA: British Columbia, Vancouver (AMD-F+NVMe, CN2GIA-E, CMIN2, CUP) [CABC_6]",
+    "HKHK_8": "HK: Hong Kong (CN2 GIA) [HKHK_8]",
+    "JPTYO_8": "JP: Tokyo (CN2 GIA) [JPTYO_8]",
+    "JPOS_1": "JP: Osaka (SoftBank) [JPOS_1]",
+    "EUNL_9": "NL: Amsterdam (AS9929) [EUNL_9]",
+    "AEDXB_1": "AE: Dubai [AEDXB_1]",
+    "AUSYD_1": "AU: New South Wales, Sydney [AUSYD_1]",
+    "USCA_2": "US: California, Los Angeles (DC2) [USCA_2]",
+    "USCA_3": "US: California, Los Angeles (DC3) [USCA_3]",
+    "USCA_4": "US: California, Los Angeles (DC4) [USCA_4]",
+    "USCA_6": "US: California, Los Angeles (DC6 CT CN2GIA-E) [USCA_6]",
+    "USCA_8": "US: California, Los Angeles (DC8 CN2) [USCA_8]",
+    "USCA_9": "US: California, Los Angeles (DC9 CT CN2GIA, CMIN2, CUP) [USCA_9]",
+    "USNY_2": "US: New York [USNY_2]",
+    "USNJ_2": "US: New Jersey [USNJ_2]",
+    "USAZ_2": "US: Arizona, Phoenix [USAZ_2]",
+}
+
 def normalize_bandwagon_locations(data):
     def pick(item, keys, fallback=""):
         for key in keys:
@@ -380,9 +400,11 @@ def normalize_bandwagon_locations(data):
             name = build_location_label(code, item)
             available = item.get("available", item.get("enabled", True))
         else:
-            code = str(item)
-            name = build_location_label(code, item)
+            code = str(key) if str(key) in BANDWAGON_LOCATION_FALLBACKS else str(item)
+            name = str(item)
             available = True
+        if code in BANDWAGON_LOCATION_FALLBACKS and (name == code or len(name) <= len(code) + 8):
+            name = BANDWAGON_LOCATION_FALLBACKS[code]
         locations.append({"code": code, "name": name, "available": bool(available)})
     return locations
 
