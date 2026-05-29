@@ -594,7 +594,8 @@
                     option.disabled = !item.available;
                     select.appendChild(option);
                 });
-                status.innerText = `已讀取 ${data.locations.length} 個機房。`;
+                const current = data.current_location ? `現在使用：${data.current_location}` : '現在使用：未能讀取';
+                status.innerText = `已讀取 ${data.locations.length} 個機房。${current}`;
             } catch (e) {
                 status.innerText = `讀取失敗：${e.message}`;
                 console.error("Error fetching /api/bandwagon/locations:", e);

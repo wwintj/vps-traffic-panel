@@ -304,7 +304,7 @@ def fetch_bandwagon_info():
         "limit": limit,
         "reset": data.get("data_next_reset") or "",
         "hostname": data.get("hostname") or "",
-        "node": data.get("node_location") or data.get("node_alias") or "",
+        "node": data.get("node_location") or data.get("node_alias") or data.get("location") or data.get("datacenter") or "",
     }
 
 def bandwagon_request(action, params=None):
@@ -459,6 +459,15 @@ def normalize_bandwagon_locations(data):
             name = infer_bandwagon_location_label(code)
         locations.append({"code": code, "name": name, "available": bool(available)})
     return locations
+
+def normalize_current_bandwagon_location(value):
+    if not value:
+        return ""
+    text = str(value).strip()
+    code = extract_bandwagon_code(text)
+    if text == code or len(text) <= len(code) + 8:
+        return infer_bandwagon_location_label(code)
+    return text
 
 def cloudflare_headers():
     return {
@@ -765,6 +774,7 @@ async def api_update_bandwagon_settings(payload: dict, username: str = Depends(v
 @app.get("/api/bandwagon/locations")
 async def api_bandwagon_locations(username: str = Depends(verify_auth)):
     errors = []
+    current_location = ""
     for action in ("migrate/getLocations", "getAvailableLocations"):
         try:
             data = await asyncio.to_thread(bandwagon_request, action)
@@ -773,7 +783,10 @@ async def api_bandwagon_locations(username: str = Depends(verify_auth)):
                 continue
             locations = normalize_bandwagon_locations(data)
             if locations:
-                return {"ok": True, "locations": locations, "raw": data}
+                service_info = await asyncio.to_thread(fetch_bandwagon_info)
+                if service_info and not service_info.get("error"):
+                    current_location = normalize_current_bandwagon_location(service_info.get("node"))
+                return {"ok": True, "locations": locations, "current_location": current_location, "raw": data}
         except Exception as exc:
             errors.append(str(exc))
     raise HTTPException(status_code=400, detail="無法讀取可切換機房：" + "；".join(errors))
