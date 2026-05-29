@@ -33,8 +33,9 @@
         <div class="text-left md:text-right text-sm text-slate-400 mt-4 md:mt-0 space-y-1">
             <p>IP: <span id="sys-ip" class="text-white font-mono">...</span></p>
             <p>運行時間: <span id="sys-uptime" class="text-white">...</span></p>
-            <p>系統: <span id="sys-os" class="text-white">...</span></p>
-            <p>內核: <span id="sys-kernel" class="text-white font-mono">...</span></p>
+            <p class="md:hidden">系統: <span id="sys-os-mobile" class="text-white">...</span></p>
+            <p class="md:hidden">內核: <span id="sys-kernel-mobile" class="text-white font-mono">...</span></p>
+            <p class="hidden md:block">系統: <span id="sys-os" class="text-white">...</span> / Kernel <span id="sys-kernel" class="text-white font-mono">...</span></p>
         </div>
     </header>
 
@@ -223,10 +224,11 @@
     </div>
 
     <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-xs text-center space-y-1 pb-8">
-        <p>總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong></p>
-        <p>本機 IP: <strong class="text-slate-300 font-mono" id="client-ip">...</strong></p>
-        <p>總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since">...</strong></p>
-        <p>網卡: <strong id="footer-iface">{{ interface }}</strong> | 維護者 <strong>Tim</strong></p>
+        <p class="md:hidden">總下載: <strong class="text-emerald-400 font-mono" id="total-rx-mobile">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx-mobile">0 B</strong></p>
+        <p class="md:hidden">本機 IP: <strong class="text-slate-300 font-mono" id="client-ip-mobile">...</strong></p>
+        <p class="md:hidden">總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since-mobile">...</strong></p>
+        <p class="hidden md:block">總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong> | 本機 IP: <strong class="text-slate-300 font-mono" id="client-ip">...</strong> | 總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since">...</strong> | 網卡: <strong id="footer-iface">{{ interface }}</strong> | 維護者 <strong>Tim</strong></p>
+        <p class="md:hidden">網卡: <strong id="footer-iface-mobile">{{ interface }}</strong> | 維護者 <strong>Tim</strong></p>
     </footer>
 
     <script>
@@ -385,6 +387,7 @@
                 const data = await res.json();
                 document.getElementById('sys-ip').innerText = data.public_ip;
                 document.getElementById('client-ip').innerText = data.client_ip || 'Unknown';
+                document.getElementById('client-ip-mobile').innerText = data.client_ip || 'Unknown';
                 document.getElementById('ip-location').innerText = data.ip_location || 'Unknown';
                 document.getElementById('ip-type').innerText = data.ip_type || '未知';
                 document.getElementById('ip-isp').innerText = data.ip_isp || 'Unknown';
@@ -392,6 +395,8 @@
                 document.getElementById('sys-uptime').innerText = data.uptime.split('.')[0];
                 document.getElementById('sys-os').innerText = data.os_version;
                 document.getElementById('sys-kernel').innerText = data.kernel_release;
+                document.getElementById('sys-os-mobile').innerText = data.os_version;
+                document.getElementById('sys-kernel-mobile').innerText = data.kernel_release;
                 document.getElementById('sys-cpu').innerText = `${data.cpu_percent}%`;
                 document.getElementById('sys-cpu-cores').innerText = `${data.cpu_count} 核心`;
                 document.getElementById('sys-mem').innerText = `${data.memory_percent}%`;
@@ -408,6 +413,7 @@
                 } else {
                     dot.className = 'status-dot-error';
                     document.getElementById('footer-iface').innerText = data.interface + '（已斷線）';
+                    document.getElementById('footer-iface-mobile').innerText = data.interface + '（已斷線）';
                 }
             } catch (e) {
                 console.error("Error fetching /api/system:", e);
@@ -452,6 +458,9 @@
                 document.getElementById('total-rx').innerText = formatBytes(data.total_rx);
                 document.getElementById('total-tx').innerText = formatBytes(data.total_tx);
                 document.getElementById('total-since').innerText = data.total_since || '未知';
+                document.getElementById('total-rx-mobile').innerText = formatBytes(data.total_rx);
+                document.getElementById('total-tx-mobile').innerText = formatBytes(data.total_tx);
+                document.getElementById('total-since-mobile').innerText = data.total_since || '未知';
                 document.getElementById('reset-day').innerText = `每月 ${data.month_reset_day} 日重置`;
                 document.getElementById('reset-day-select').value = String(data.month_reset_day);
             } catch (e) {
