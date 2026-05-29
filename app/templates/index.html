@@ -302,8 +302,10 @@
     <footer class="mt-8 pt-6 border-t border-slate-700 text-slate-500 text-xs text-center space-y-1 pb-8">
         <p class="md:hidden">總下載: <strong class="text-emerald-400 font-mono" id="total-rx-mobile">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx-mobile">0 B</strong></p>
         <p class="md:hidden">本機 IP: <strong class="text-slate-300 font-mono" id="client-ip-mobile">...</strong></p>
+        <p class="md:hidden">位置: <strong class="text-slate-300" id="client-location-mobile">...</strong></p>
+        <p class="md:hidden">經緯度: <strong class="text-slate-300 font-mono" id="client-coordinates-mobile">...</strong> | 時區: <strong class="text-slate-300 font-mono" id="client-timezone-mobile">...</strong></p>
         <p class="md:hidden">總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since-mobile">...</strong></p>
-        <p class="hidden md:block">總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong> | 本機 IP: <strong class="text-slate-300 font-mono" id="client-ip">...</strong> | 總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since">...</strong> | 網卡: <strong id="footer-iface">{{ interface }}</strong> | 維護者 <strong>Tim</strong></p>
+        <p class="hidden md:block">總下載: <strong class="text-emerald-400 font-mono" id="total-rx">0 B</strong> | 總上傳: <strong class="text-blue-400 font-mono" id="total-tx">0 B</strong> | 本機 IP: <strong class="text-slate-300 font-mono" id="client-ip">...</strong> | 位置: <strong class="text-slate-300" id="client-location">...</strong> | 經緯度: <strong class="text-slate-300 font-mono" id="client-coordinates">...</strong> | 時區: <strong class="text-slate-300 font-mono" id="client-timezone">...</strong> | 總流量統計起點: <strong class="text-slate-300 font-mono" id="total-since">...</strong> | 網卡: <strong id="footer-iface">{{ interface }}</strong> | 維護者 <strong>Tim</strong></p>
         <p class="md:hidden">網卡: <strong id="footer-iface-mobile">{{ interface }}</strong> | 維護者 <strong>Tim</strong></p>
     </footer>
 
@@ -318,6 +320,11 @@
         function setProgress(id, value) {
             const percent = Math.max(0, Math.min(100, Number(value) || 0));
             document.getElementById(id).style.width = `${percent}%`;
+        }
+
+        function formatCoordinates(lat, lon) {
+            if (lat === null || lat === undefined || lon === null || lon === undefined) return 'Unknown';
+            return `${Number(lat).toFixed(4)}, ${Number(lon).toFixed(4)}`;
         }
 
         function escapeHtml(value) {
@@ -743,6 +750,12 @@
                 document.getElementById('sys-ip').innerText = data.public_ip;
                 document.getElementById('client-ip').innerText = data.client_ip || 'Unknown';
                 document.getElementById('client-ip-mobile').innerText = data.client_ip || 'Unknown';
+                document.getElementById('client-location').innerText = data.client_ip_location || 'Unknown';
+                document.getElementById('client-location-mobile').innerText = data.client_ip_location || 'Unknown';
+                document.getElementById('client-coordinates').innerText = formatCoordinates(data.client_ip_lat, data.client_ip_lon);
+                document.getElementById('client-coordinates-mobile').innerText = formatCoordinates(data.client_ip_lat, data.client_ip_lon);
+                document.getElementById('client-timezone').innerText = data.client_ip_timezone || 'Unknown';
+                document.getElementById('client-timezone-mobile').innerText = data.client_ip_timezone || 'Unknown';
                 document.getElementById('ip-location').innerText = data.ip_location || 'Unknown';
                 document.getElementById('ip-type').innerText = data.ip_type || '未知';
                 document.getElementById('ip-isp').innerText = data.ip_isp || 'Unknown';

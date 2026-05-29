@@ -57,6 +57,7 @@ app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "app/templates"))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 SYSTEM_INFO_CACHE = {"public_ip": None, "ip_info": None, "updated_at": 0}
+IP_LOOKUP_CACHE = {}
 SYSTEM_INFO_CACHE_TTL = 600
 
 async def run_blocking(func, *args):
@@ -196,6 +197,33 @@ def classify_ip_info(info):
         return "行動網路"
     return "家寬 / 商寬"
 
+def lookup_ip_info(ip):
+    if not ip or ip == "Unknown":
+        return {}
+    now = time.time()
+    cached = IP_LOOKUP_CACHE.get(ip)
+    if cached and now - cached["updated_at"] < SYSTEM_INFO_CACHE_TTL:
+        return cached["info"]
+
+    try:
+        fields = "status,message,country,regionName,city,lat,lon,timezone,isp,org,as,query,hosting,proxy,mobile"
+        url = f"http://ip-api.com/json/{urllib.parse.quote(ip)}?fields={fields}&lang=zh-CN"
+        with urllib.request.urlopen(url, timeout=3) as response:
+            info = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        info = {}
+    IP_LOOKUP_CACHE[ip] = {"info": info, "updated_at": now}
+    return info
+
+def format_ip_location(info):
+    if not info or info.get("status") != "success":
+        return "Unknown"
+    return " / ".join(filter(None, [
+        info.get("country"),
+        info.get("regionName"),
+        info.get("city"),
+    ])) or "Unknown"
+
 def get_cached_public_ip_info(force=False):
     now = time.time()
     if not force and SYSTEM_INFO_CACHE["public_ip"] and now - SYSTEM_INFO_CACHE["updated_at"] < SYSTEM_INFO_CACHE_TTL:
@@ -206,15 +234,7 @@ def get_cached_public_ip_info(force=False):
     except Exception:
         public_ip = "Unknown"
 
-    ip_info = {}
-    if public_ip != "Unknown":
-        try:
-            fields = "status,message,country,regionName,city,isp,org,as,query,hosting,proxy,mobile"
-            url = f"http://ip-api.com/json/{public_ip}?fields={fields}&lang=zh-CN"
-            with urllib.request.urlopen(url, timeout=3) as response:
-                ip_info = json.loads(response.read().decode("utf-8"))
-        except Exception:
-            ip_info = {}
+    ip_info = lookup_ip_info(public_ip) if public_ip != "Unknown" else {}
 
     SYSTEM_INFO_CACHE["public_ip"] = public_ip
     SYSTEM_INFO_CACHE["ip_info"] = ip_info
@@ -1001,6 +1021,7 @@ async def api_system(request: Request, username: str = Depends(verify_auth)):
     if not client_ip and request.client:
         client_ip = request.client.host
     client_ip = client_ip or "Unknown"
+    client_ip_info = lookup_ip_info(client_ip)
     
     uptime = "Unknown"
     try:
@@ -1016,11 +1037,13 @@ async def api_system(request: Request, username: str = Depends(verify_auth)):
     return {
         "public_ip": ip,
         "client_ip": client_ip,
-        "ip_location": " / ".join(filter(None, [
-            ip_info.get("country"),
-            ip_info.get("regionName"),
-            ip_info.get("city"),
-        ])) or "Unknown",
+        "client_ip_location": format_ip_location(client_ip_info),
+        "client_ip_lat": client_ip_info.get("lat"),
+        "client_ip_lon": client_ip_info.get("lon"),
+        "client_ip_timezone": client_ip_info.get("timezone") or "Unknown",
+        "client_ip_isp": client_ip_info.get("isp") or "Unknown",
+        "client_ip_org": client_ip_info.get("org") or "Unknown",
+        "ip_location": format_ip_location(ip_info),
         "ip_isp": ip_info.get("isp") or "Unknown",
         "ip_org": ip_info.get("org") or "Unknown",
         "ip_as": ip_info.get("as") or "Unknown",
