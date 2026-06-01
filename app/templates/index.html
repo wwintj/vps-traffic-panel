@@ -43,7 +43,7 @@
         <div class="card border-t-4 border-t-cyan-400">
             <div class="mb-3 flex items-center justify-between gap-2">
                 <h3 class="text-slate-400 text-xs uppercase tracking-wider">即時速度</h3>
-                <span id="traffic-quota-source" class="text-[11px] text-slate-500 truncate text-right">來源: ...</span>
+                <button id="open-traffic-quota" class="shrink-0 rounded border border-emerald-500/50 px-2.5 py-1 text-[11px] text-emerald-200 hover:border-emerald-300 transition">設定流量</button>
             </div>
             <div class="grid grid-cols-2 gap-3">
                 <div>
@@ -56,13 +56,10 @@
                 </div>
             </div>
             <div class="mt-4">
-                <div class="mb-2 flex items-center justify-between gap-2 text-[11px]">
-                    <span class="text-slate-500">月流量</span>
-                    <span id="traffic-quota-detail" class="text-slate-300 font-mono text-right">未設定</span>
-                </div>
-                <div class="flex items-center gap-2">
-                    <div class="progress-track min-w-0 flex-1"><div class="progress-fill bg-emerald-400" id="traffic-quota-bar"></div></div>
-                    <button id="open-traffic-quota" class="shrink-0 rounded border border-emerald-500/50 px-2.5 py-1 text-[11px] text-emerald-200 hover:border-emerald-300 transition">設定流量</button>
+                <div class="grid grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-2 text-[11px]">
+                    <span class="text-slate-500 whitespace-nowrap">月流量</span>
+                    <span id="traffic-quota-detail" class="text-slate-300 font-mono whitespace-nowrap">未設定</span>
+                    <div class="progress-track min-w-0"><div class="progress-fill bg-emerald-400" id="traffic-quota-bar"></div></div>
                 </div>
             </div>
         </div>
@@ -878,9 +875,6 @@
                 document.getElementById('traffic-quota-detail').innerText = quota.available
                     ? `${formatBytes(quota.used)} / ${formatBytes(quota.limit)} (${quotaPercent.toFixed(1)}%)`
                     : '未設定';
-                document.getElementById('traffic-quota-source').innerText = quota.available
-                    ? `來源: ${quota.source_label}`
-                    : `來源: ${quota.error || '未設定'}`;
             } catch (e) {
                 console.error("Error fetching /api/summary:", e);
             }
