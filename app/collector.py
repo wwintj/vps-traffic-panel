@@ -27,25 +27,61 @@ class TrafficCollector:
 
     def _get_default_interface(self):
         try:
-            with os.popen("ip route | grep default | awk '{print $5}'") as f:
-                iface = f.read().strip()
-                if iface:
-                    return iface
+            with os.popen("ip route show default") as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if "dev" in parts:
+                        iface = parts[parts.index("dev") + 1]
+                        if iface:
+                            return iface
         except Exception:
             pass
-        return "eth0"
+        return self._get_active_interface() or "eth0"
 
-    def _read_net_dev(self):
+    def _read_all_interfaces(self):
+        interfaces = {}
         try:
             with open('/proc/net/dev', 'r') as f:
                 for line in f:
-                    line = line.strip()
-                    if line.startswith(self.interface + ':'):
-                        self.interface_status = True
-                        parts = line.split(':')[1].split()
-                        return int(parts[0]), int(parts[8])
+                    if ':' not in line:
+                        continue
+                    name, data = line.split(':', 1)
+                    name = name.strip()
+                    parts = data.split()
+                    if len(parts) >= 16:
+                        interfaces[name] = (int(parts[0]), int(parts[8]))
         except Exception:
             pass
+        return interfaces
+
+    def _get_active_interface(self):
+        ignored_prefixes = ("lo", "docker", "veth", "br-", "virbr", "tun", "tap")
+        candidates = {
+            name: counters
+            for name, counters in self._read_all_interfaces().items()
+            if not name.startswith(ignored_prefixes)
+        }
+        if not candidates:
+            return ""
+        return max(candidates.items(), key=lambda item: item[1][0] + item[1][1])[0]
+
+    def _read_net_dev(self):
+        interfaces = self._read_all_interfaces()
+        if self.interface in interfaces:
+            rx, tx = interfaces[self.interface]
+            if not INTERFACE and rx == 0 and tx == 0:
+                active_iface = self._get_active_interface()
+                if active_iface and active_iface != self.interface:
+                    self.interface = active_iface
+                    rx, tx = interfaces.get(self.interface, (rx, tx))
+            self.interface_status = True
+            return rx, tx
+
+        detected_iface = self._get_default_interface() if not INTERFACE else ""
+        if detected_iface in interfaces:
+            self.interface = detected_iface
+            self.interface_status = True
+            return interfaces[detected_iface]
             
         if time.time() - self.last_log_time >= 60:
             logger.warning(f"Interface '{self.interface}' dropped or not found in /proc/net/dev")

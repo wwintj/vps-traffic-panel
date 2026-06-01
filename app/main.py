@@ -163,6 +163,7 @@ def to_traditional_text(value):
     }
     char_map = str.maketrans({
         "监": "監", "控": "控", "务": "務", "器": "器", "汉": "漢", "简": "簡", "体": "體",
+        "国": "國", "东": "東", "广": "廣", "韩": "韓",
         "龙": "龍", "马": "馬", "门": "門", "云": "雲", "电": "電", "脑": "腦", "网": "網",
         "页": "頁", "题": "題", "标": "標", "副": "副", "时": "時", "间": "間", "运": "運",
         "行": "行", "总": "總", "传": "傳", "载": "載", "数": "數", "据": "據", "统": "統",
@@ -218,11 +219,41 @@ def lookup_ip_info(ip):
 def format_ip_location(info):
     if not info or info.get("status") != "success":
         return "Unknown"
-    return " / ".join(filter(None, [
+    return to_traditional_text(" / ".join(filter(None, [
         info.get("country"),
         info.get("regionName"),
         info.get("city"),
-    ])) or "Unknown"
+    ])) or "Unknown")
+
+def normalize_carrier_name(info):
+    text = " ".join(filter(None, [
+        str(info.get("isp") or ""),
+        str(info.get("org") or ""),
+        str(info.get("as") or ""),
+    ])).lower()
+    if any(word in text for word in ("mobile", "cmcc", "china mobile", "移动", "移動")):
+        return "中國移動"
+    if any(word in text for word in ("telecom", "chinanet", "china telecom", "电信", "電信")):
+        return "中國電信"
+    if any(word in text for word in ("unicom", "china unicom", "联通", "聯通")):
+        return "中國聯通"
+    if any(word in text for word in ("broadnet", "cernet", "教育网", "教育網")):
+        return "中國教育網"
+    return info.get("isp") or info.get("org") or "Unknown"
+
+def classify_access_network(info):
+    if not info or info.get("status") != "success":
+        return "Unknown"
+    carrier = normalize_carrier_name(info)
+    if info.get("mobile"):
+        access_type = "手機"
+    elif info.get("hosting"):
+        access_type = "機房"
+    elif info.get("proxy"):
+        access_type = "代理"
+    else:
+        access_type = "寬帶"
+    return f"{carrier}{access_type}" if carrier != "Unknown" else access_type
 
 def get_cached_public_ip_info(force=False):
     now = time.time()
@@ -1043,6 +1074,7 @@ async def api_system(request: Request, username: str = Depends(verify_auth)):
         "client_ip_timezone": client_ip_info.get("timezone") or "Unknown",
         "client_ip_isp": client_ip_info.get("isp") or "Unknown",
         "client_ip_org": client_ip_info.get("org") or "Unknown",
+        "client_ip_access_type": classify_access_network(client_ip_info),
         "ip_location": format_ip_location(ip_info),
         "ip_isp": ip_info.get("isp") or "Unknown",
         "ip_org": ip_info.get("org") or "Unknown",
