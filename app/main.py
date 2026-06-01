@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
-from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE, TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PUSH_HOUR, TELEGRAM_PUSH_MINUTE, TELEGRAM_TIMEZONE_OFFSET, TELEGRAM_TIMEZONE_LABEL, BANDWAGON_VEID, BANDWAGON_API_KEY, CLOUDFLARE_DDNS_ENABLED, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID, CLOUDFLARE_RECORD_NAME, CLOUDFLARE_PROXIED
+from app.config import AUTH_USERNAME, AUTH_PASSWORD, BASE_DIR, MONTH_RESET_DAY, PANEL_TITLE, PANEL_SUBTITLE, TELEGRAM_ENABLED, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PUSH_HOUR, TELEGRAM_PUSH_MINUTE, TELEGRAM_TIMEZONE_OFFSET, TELEGRAM_TIMEZONE_LABEL, BANDWAGON_VEID, BANDWAGON_API_KEY, TRAFFIC_QUOTA_BYTES, CLOUDFLARE_DDNS_ENABLED, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID, CLOUDFLARE_RECORD_NAME, CLOUDFLARE_PROXIED
 from app.database import init_db, get_db, get_meta_value, set_meta_value
 from app.collector import collector_instance
 
@@ -58,7 +58,9 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "app/templates"))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 SYSTEM_INFO_CACHE = {"public_ip": None, "ip_info": None, "updated_at": 0}
 IP_LOOKUP_CACHE = {}
+BANDWAGON_INFO_CACHE = {"data": None, "updated_at": 0}
 SYSTEM_INFO_CACHE_TTL = 600
+BANDWAGON_INFO_CACHE_TTL = 300
 
 async def run_blocking(func, *args):
     loop = asyncio.get_running_loop()
@@ -339,7 +341,7 @@ def get_traffic_summary():
         total_rx += traffic["rx"]
         total_tx += traffic["tx"]
 
-    return {
+    summary = {
         "today_rx": today_rx, "today_tx": today_tx,
         "month_rx": month_rx, "month_tx": month_tx,
         "total_rx": total_rx, "total_tx": total_tx,
@@ -347,6 +349,8 @@ def get_traffic_summary():
         "cycle_start": cycle_start.isoformat(),
         "total_since": format_meta_time(get_meta_value("install_time", ""))
     }
+    summary["traffic_quota"] = get_traffic_quota_summary(summary)
+    return summary
 
 def fetch_bandwagon_info():
     if not BANDWAGON_VEID or not BANDWAGON_API_KEY:
@@ -375,6 +379,42 @@ def fetch_bandwagon_info():
         "reset": data.get("data_next_reset") or "",
         "hostname": data.get("hostname") or "",
         "node": data.get("node_location") or data.get("node_alias") or data.get("location") or data.get("datacenter") or "",
+    }
+
+def fetch_bandwagon_info_cached(force=False):
+    now = time.time()
+    if not force and BANDWAGON_INFO_CACHE["data"] is not None and now - BANDWAGON_INFO_CACHE["updated_at"] < BANDWAGON_INFO_CACHE_TTL:
+        return BANDWAGON_INFO_CACHE["data"]
+    data = fetch_bandwagon_info()
+    BANDWAGON_INFO_CACHE["data"] = data
+    BANDWAGON_INFO_CACHE["updated_at"] = now
+    return data
+
+def get_traffic_quota_summary(summary):
+    bw = fetch_bandwagon_info_cached()
+    if bw and not bw.get("error") and bw.get("limit"):
+        used = int(bw.get("used") or 0)
+        limit = int(bw.get("limit") or 0)
+        return {
+            "source": "bandwagon",
+            "source_label": "Bandwagon 官方",
+            "used": used,
+            "limit": limit,
+            "percent": round((used / limit * 100) if limit else 0, 1),
+            "available": True,
+            "error": "",
+        }
+
+    used = int(summary.get("month_rx", 0) or 0) + int(summary.get("month_tx", 0) or 0)
+    limit = int(TRAFFIC_QUOTA_BYTES or 0)
+    return {
+        "source": "manual",
+        "source_label": "手動配額",
+        "used": used,
+        "limit": limit,
+        "percent": round((used / limit * 100) if limit else 0, 1),
+        "available": bool(limit),
+        "error": "" if limit else (bw.get("error") if bw and bw.get("error") else "尚未設定月流量配額"),
     }
 
 def bandwagon_request(action, params=None):
@@ -874,6 +914,8 @@ async def api_update_telegram_settings(payload: dict, username: str = Depends(ve
     TELEGRAM_TIMEZONE_LABEL = str(payload.get("telegram_timezone_label", "中國時間")).strip() or "自訂時區"
     BANDWAGON_VEID = str(payload.get("bandwagon_veid", "")).strip()
     BANDWAGON_API_KEY = str(payload.get("bandwagon_api_key", "")).strip()
+    BANDWAGON_INFO_CACHE["data"] = None
+    BANDWAGON_INFO_CACHE["updated_at"] = 0
 
     update_env_values({
         "TELEGRAM_ENABLED": TELEGRAM_ENABLED,
@@ -942,6 +984,8 @@ async def api_update_bandwagon_settings(payload: dict, username: str = Depends(v
     global BANDWAGON_VEID, BANDWAGON_API_KEY
     BANDWAGON_VEID = str(payload.get("bandwagon_veid", "")).strip()
     BANDWAGON_API_KEY = str(payload.get("bandwagon_api_key", "")).strip()
+    BANDWAGON_INFO_CACHE["data"] = None
+    BANDWAGON_INFO_CACHE["updated_at"] = 0
     update_env_values({"BANDWAGON_VEID": BANDWAGON_VEID, "BANDWAGON_API_KEY": BANDWAGON_API_KEY})
     return {"ok": True}
 
@@ -1031,6 +1075,30 @@ async def api_update_reset_day(payload: dict, username: str = Depends(verify_aut
     update_env_values({"MONTH_RESET_DAY": new_day})
     MONTH_RESET_DAY = new_day
     return {"ok": True, "month_reset_day": MONTH_RESET_DAY}
+
+@app.get("/api/traffic-quota")
+async def api_get_traffic_quota(username: str = Depends(verify_auth)):
+    bw = fetch_bandwagon_info_cached()
+    return {
+        "traffic_quota_bytes": TRAFFIC_QUOTA_BYTES,
+        "bandwagon_available": bool(bw and not bw.get("error") and bw.get("limit")),
+        "bandwagon_error": bw.get("error") if bw and bw.get("error") else "",
+    }
+
+@app.post("/api/traffic-quota")
+async def api_update_traffic_quota(payload: dict, username: str = Depends(verify_auth)):
+    global TRAFFIC_QUOTA_BYTES
+
+    try:
+        quota_bytes = int(payload.get("traffic_quota_bytes", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid traffic quota")
+    if quota_bytes < 0:
+        raise HTTPException(status_code=400, detail="Traffic quota cannot be negative")
+
+    TRAFFIC_QUOTA_BYTES = quota_bytes
+    update_env_values({"TRAFFIC_QUOTA_BYTES": TRAFFIC_QUOTA_BYTES})
+    return {"ok": True, "traffic_quota_bytes": TRAFFIC_QUOTA_BYTES}
 
 @app.get("/api/realtime")
 async def api_realtime(username: str = Depends(verify_auth)):

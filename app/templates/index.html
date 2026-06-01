@@ -65,6 +65,17 @@
                 <p>ISP: <span id="ip-isp" class="text-slate-300">...</span></p>
                 <p>ASN: <span id="ip-as" class="text-slate-400">...</span></p>
             </div>
+            <div class="mt-4">
+                <div class="mb-2 flex items-center justify-between gap-2 text-[11px]">
+                    <span class="text-slate-500">月流量</span>
+                    <span id="traffic-quota-detail" class="text-slate-300 font-mono text-right">未設定</span>
+                </div>
+                <div class="progress-track"><div class="progress-fill bg-emerald-400" id="traffic-quota-bar"></div></div>
+                <div class="mt-3 flex items-center justify-between gap-2">
+                    <span id="traffic-quota-source" class="text-[11px] text-slate-500">來源: ...</span>
+                    <button id="open-traffic-quota" class="shrink-0 rounded border border-emerald-500/50 px-2 py-1 text-[11px] text-emerald-200 hover:border-emerald-300 transition">設定流量</button>
+                </div>
+            </div>
         </div>
         <div class="card">
             <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -184,6 +195,33 @@
                     <select id="reset-day-select" class="form-input"></select>
                 </label>
                 <button id="reset-day-save" class="w-full rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm py-2.5 transition">保存重置日</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="traffic-quota-modal" class="modal-backdrop">
+        <div class="card w-full max-w-md">
+            <div class="flex items-start justify-between gap-4 mb-5">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-100">設定月流量配額</h2>
+                    <p class="text-xs text-slate-500 mt-1" id="traffic-quota-status">優先使用 Bandwagon 官方 API，否則使用手動配額</p>
+                </div>
+                <button class="settings-close text-slate-400 hover:text-white text-xl leading-none" data-modal="traffic-quota-modal">&times;</button>
+            </div>
+            <div class="space-y-4">
+                <div class="rounded border border-slate-700 bg-slate-950/40 px-3 py-2 text-xs text-slate-400" id="traffic-quota-api-status">正在檢測官方 API...</div>
+                <div class="grid grid-cols-[minmax(0,1fr)_6rem] gap-4">
+                    <label class="block text-xs text-slate-400 uppercase">手動月流量配額
+                        <input id="traffic-quota-value" type="number" min="0" step="0.01" class="form-input" placeholder="1">
+                    </label>
+                    <label class="block text-xs text-slate-400 uppercase">單位
+                        <select id="traffic-quota-unit" class="form-input">
+                            <option value="GB">GB</option>
+                            <option value="TB">TB</option>
+                        </select>
+                    </label>
+                </div>
+                <button id="traffic-quota-save" class="w-full rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm py-2.5 transition">保存手動配額</button>
             </div>
         </div>
     </div>
@@ -310,6 +348,20 @@
             const k = 1024, sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.max(0, Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k))));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i] + (isSpeed ? '/s' : '');
+        }
+
+        function bytesToQuotaInput(bytes) {
+            const value = Number(bytes) || 0;
+            if (value >= 1099511627776 && value % 1099511627776 === 0) {
+                return { value: value / 1099511627776, unit: 'TB' };
+            }
+            return { value: value ? Number((value / 1073741824).toFixed(2)) : '', unit: 'GB' };
+        }
+
+        function quotaInputToBytes() {
+            const value = Number(document.getElementById('traffic-quota-value').value) || 0;
+            const unit = document.getElementById('traffic-quota-unit').value;
+            return Math.round(value * (unit === 'TB' ? 1099511627776 : 1073741824));
         }
 
         function setProgress(id, value) {
@@ -820,6 +872,15 @@
                 document.getElementById('total-since').innerText = data.total_since || '未知';
                 document.getElementById('reset-day').innerText = `每月 ${data.month_reset_day} 日重置`;
                 document.getElementById('reset-day-select').value = String(data.month_reset_day);
+                const quota = data.traffic_quota || {};
+                const quotaPercent = Math.max(0, Math.min(100, Number(quota.percent) || 0));
+                document.getElementById('traffic-quota-bar').style.width = `${quotaPercent}%`;
+                document.getElementById('traffic-quota-detail').innerText = quota.available
+                    ? `${formatBytes(quota.used)} / ${formatBytes(quota.limit)} (${quotaPercent.toFixed(1)}%)`
+                    : '未設定';
+                document.getElementById('traffic-quota-source').innerText = quota.available
+                    ? `來源: ${quota.source_label}`
+                    : `來源: ${quota.error || '未設定'}`;
             } catch (e) {
                 console.error("Error fetching /api/summary:", e);
             }
@@ -854,6 +915,39 @@
             } catch (e) {
                 status.innerText = '保存失敗，請選擇 1-31 之間的日期。';
                 console.error("Error saving reset day:", e);
+            }
+        }
+
+        async function fetchTrafficQuotaSettings() {
+            try {
+                const res = await fetch('/api/traffic-quota');
+                const data = await res.json();
+                const input = bytesToQuotaInput(data.traffic_quota_bytes);
+                document.getElementById('traffic-quota-value').value = input.value;
+                document.getElementById('traffic-quota-unit').value = input.unit;
+                document.getElementById('traffic-quota-api-status').innerText = data.bandwagon_available
+                    ? '已檢測到 Bandwagon 官方 API，面板會優先使用官方配額。'
+                    : `未檢測到 Bandwagon 官方配額，將使用手動配額。${data.bandwagon_error ? `原因：${data.bandwagon_error}` : ''}`;
+            } catch (e) {
+                document.getElementById('traffic-quota-api-status').innerText = '讀取配額設定失敗。';
+                console.error("Error fetching /api/traffic-quota:", e);
+            }
+        }
+
+        async function saveTrafficQuotaSettings() {
+            const status = document.getElementById('traffic-quota-status');
+            try {
+                const res = await fetch('/api/traffic-quota', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({traffic_quota_bytes: quotaInputToBytes()})
+                });
+                if (!res.ok) throw new Error(await res.text());
+                status.innerText = '已保存手動月流量配額。';
+                await fetchSummary();
+            } catch (e) {
+                status.innerText = '保存失敗，請檢查流量配額。';
+                console.error("Error saving /api/traffic-quota:", e);
             }
         }
 
@@ -918,6 +1012,7 @@
         document.getElementById('open-telegram-settings').addEventListener('click', () => openModal('telegram-modal'));
         document.getElementById('open-ddns-settings').addEventListener('click', () => openModal('ddns-modal'));
         document.getElementById('open-migrate-settings').addEventListener('click', () => openModal('migrate-modal'));
+        document.getElementById('open-traffic-quota').addEventListener('click', () => openModal('traffic-quota-modal'));
         document.getElementById('open-reset-day').addEventListener('click', () => openModal('reset-day-modal'));
         document.getElementById('auth-settings-save').addEventListener('click', () => saveSettings('auth'));
         document.getElementById('panel-settings-save').addEventListener('click', () => saveSettings('panel'));
@@ -927,13 +1022,14 @@
         document.getElementById('ddns-sync').addEventListener('click', syncDdnsNow);
         document.getElementById('migrate-load').addEventListener('click', loadBandwagonLocations);
         document.getElementById('migrate-start').addEventListener('click', startBandwagonMigration);
+        document.getElementById('traffic-quota-save').addEventListener('click', saveTrafficQuotaSettings);
         document.getElementById('logout-panel').addEventListener('click', logoutPanel);
         document.getElementById('traffic-reset').addEventListener('click', resetTraffic);
         document.getElementById('reset-day-save').addEventListener('click', saveResetDay);
         document.querySelectorAll('.settings-close').forEach((button) => {
             button.addEventListener('click', () => closeModal(button.dataset.modal));
         });
-        fetchSystem(); fetchSummary(); fetchCharts(); fetchSettings(); fetchTelegramSettings(); fetchDdnsSettings(); fetchBandwagonSettings(); fetchLatency(); resumeMigrationPollingIfNeeded();
+        fetchSystem(); fetchSummary(); fetchCharts(); fetchSettings(); fetchTelegramSettings(); fetchDdnsSettings(); fetchBandwagonSettings(); fetchTrafficQuotaSettings(); fetchLatency(); resumeMigrationPollingIfNeeded();
         setInterval(fetchRealtime, 2000);
         setInterval(fetchLatency, 10000);
         setInterval(fetchSummary, 5000);
