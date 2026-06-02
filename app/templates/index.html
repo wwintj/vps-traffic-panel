@@ -521,7 +521,7 @@
             }
         }
 
-        async function saveTelegramSettings() {
+        async function saveTelegramSettings(closeAfterSave = true) {
             const status = document.getElementById('telegram-status');
             const payload = {
                 telegram_enabled: document.getElementById('telegram-enabled').checked,
@@ -544,6 +544,10 @@
                 const hour = String(payload.telegram_push_hour).padStart(2, '0');
                 const minute = String(payload.telegram_push_minute).padStart(2, '0');
                 status.innerText = `已保存。啟用後每天 ${payload.telegram_timezone_label} ${hour}:${minute} 推送流量摘要。`;
+                await fetchBandwagonSettings();
+                await fetchTrafficQuotaSettings();
+                await fetchSummary();
+                if (closeAfterSave) closeModal('telegram-modal');
                 return true;
             } catch (e) {
                 status.innerText = '保存失敗，請檢查 Token、Chat ID 或 Bandwagon 資訊。';
@@ -554,7 +558,7 @@
 
         async function testTelegramPush() {
             const status = document.getElementById('telegram-status');
-            const saved = await saveTelegramSettings();
+            const saved = await saveTelegramSettings(false);
             if (!saved) return;
             try {
                 const res = await fetch('/api/telegram-test', { method: 'POST' });
