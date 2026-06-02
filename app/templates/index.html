@@ -373,6 +373,15 @@
             document.getElementById(id).style.width = `${percent}%`;
         }
 
+        function renderTrafficQuota(quota) {
+            quota = quota || {};
+            const quotaPercent = Math.max(0, Math.min(100, Number(quota.percent) || 0));
+            document.getElementById('traffic-quota-bar').style.width = `${quotaPercent}%`;
+            document.getElementById('traffic-quota-detail').innerText = quota.available
+                ? `${formatBytes(quota.used)} / ${formatBytes(quota.limit)} (${quotaPercent.toFixed(1)}%)`
+                : '未設定';
+        }
+
         function formatCoordinates(lat, lon) {
             if (lat === null || lat === undefined || lon === null || lon === undefined) return 'Unknown';
             return `${Number(lat).toFixed(4)}, ${Number(lon).toFixed(4)}`;
@@ -876,12 +885,7 @@
                 document.getElementById('total-since').innerText = data.total_since || '未知';
                 document.getElementById('reset-day').innerText = `每月 ${data.month_reset_day} 日重置`;
                 document.getElementById('reset-day-select').value = String(data.month_reset_day);
-                const quota = data.traffic_quota || {};
-                const quotaPercent = Math.max(0, Math.min(100, Number(quota.percent) || 0));
-                document.getElementById('traffic-quota-bar').style.width = `${quotaPercent}%`;
-                document.getElementById('traffic-quota-detail').innerText = quota.available
-                    ? `${formatBytes(quota.used)} / ${formatBytes(quota.limit)} (${quotaPercent.toFixed(1)}%)`
-                    : '未設定';
+                renderTrafficQuota(data.traffic_quota);
             } catch (e) {
                 console.error("Error fetching /api/summary:", e);
             }
@@ -937,14 +941,22 @@
 
         async function saveTrafficQuotaSettings() {
             const status = document.getElementById('traffic-quota-status');
+            const quotaBytes = quotaInputToBytes();
+            if (quotaBytes <= 0) {
+                status.innerText = '請輸入大於 0 的手動月流量配額。';
+                return;
+            }
             try {
                 const res = await fetch('/api/traffic-quota', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({traffic_quota_bytes: quotaInputToBytes()})
+                    body: JSON.stringify({traffic_quota_bytes: quotaBytes})
                 });
                 if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                renderTrafficQuota(data.traffic_quota);
                 status.innerText = '已保存手動月流量配額。';
+                await fetchTrafficQuotaSettings();
                 await fetchSummary();
                 closeModal('traffic-quota-modal');
             } catch (e) {

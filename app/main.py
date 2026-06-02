@@ -1098,7 +1098,12 @@ async def api_update_traffic_quota(payload: dict, username: str = Depends(verify
 
     TRAFFIC_QUOTA_BYTES = quota_bytes
     update_env_values({"TRAFFIC_QUOTA_BYTES": TRAFFIC_QUOTA_BYTES})
-    return {"ok": True, "traffic_quota_bytes": TRAFFIC_QUOTA_BYTES}
+    summary = get_traffic_summary()
+    return {
+        "ok": True,
+        "traffic_quota_bytes": TRAFFIC_QUOTA_BYTES,
+        "traffic_quota": summary.get("traffic_quota", {}),
+    }
 
 @app.get("/api/realtime")
 async def api_realtime(username: str = Depends(verify_auth)):
